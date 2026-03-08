@@ -1,0 +1,631 @@
+import { useState, useRef, useCallback, useEffect } from "react";
+import { LoginForm } from "@/components/LoginForm";
+import { ResultDisplay } from "@/components/ResultDisplay";
+import { CreditAnalysis } from "@/components/CreditAnalysis";
+import { AutoRetryStatus } from "@/components/AutoRetryStatus";
+import { Dashboard } from "@/components/Dashboard";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { StudentProfileSheet } from "@/components/StudentProfileSheet";
+import { ktuHealthCheck, ktuServerHealthCheck, ktuLogin, ktuGetStudentData, type ParsedResult, type SemesterData, type StudentInfo } from "@/lib/ktu-api";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { LogOut, RefreshCw, Zap, CheckCircle2, AlertTriangle, User, Circle, ExternalLink, Bell, Shield } from "lucide-react";
+import logoImg from "@/assets/logo.png";
+import { AdminPanel } from "@/components/AdminPanel";
+import { AnnouncementsPanel } from "@/components/AnnouncementsPanel";
+import { UpcomingExams } from "@/components/UpcomingExams";
+
+const MAX_RETRIES = 30;
+const RETRY_DELAY = 5000;
+
+const Index = () => {
+  const { toast } = useToast();
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [sessionCookie, setSessionCookie] = useState<string | null>(null);
+  const [results, setResults] = useState<ParsedResult[]>([]);
+  const [statusMessage, setStatusMessage] = useState<string>("");
+  const [semesters, setSemesters] = useState<Record<string, SemesterData>>({});
+  const [studentInfo, setStudentInfo] = useState<StudentInfo>({});
+  const [selectedExam, setSelectedExam] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<'results' | 'timetable' | 'analysis'>('results');
+  const [loggedInUsername, setLoggedInUsername] = useState<string>("");
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [isAnnouncementsOpen, setIsAnnouncementsOpen] = useState(false);
+  const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
+  const [apiStatusMessage, setApiStatusMessage] = useState("Checking My KTU Pro...");
+  const [ktuServerStatus, setKtuServerStatus] = useState<"checking" | "online" | "offline">("checking");
+  const [ktuServerStatusMessage, setKtuServerStatusMessage] = useState("Checking KTU Server...");
+
+  // Auto-login retry state
+  const [isLoginRetrying, setIsLoginRetrying] = useState(false);
+  const [loginAttempt, setLoginAttempt] = useState(0);
+  const [loginCountdown, setLoginCountdown] = useState(0);
+  const loginRetryRef = useRef<number | null>(null);
+  const loginCountdownRef = useRef<number | null>(null);
+
+  // Prevent multiple concurrent logins
+  const loginInProgress = useRef(false);
+  const apiFailureCount = useRef(0);
+
+  // Auto-retry state
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState(0);
+  const retryRef = useRef<number | null>(null);
+  const countdownRef = useRef<number | null>(null);
+
+  const clearTimers = () => {
+    if (retryRef.current) clearTimeout(retryRef.current);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    if (loginRetryRef.current) clearTimeout(loginRetryRef.current);
+    if (loginCountdownRef.current) clearInterval(loginCountdownRef.current);
+  };
+
+  const stopRetrying = useCallback(() => {
+    clearTimers();
+    setIsRetrying(false);
+    setAttempt(0);
+    setCountdown(0);
+    setLastError(null);
+  }, []);
+
+  const checkApiStatus = useCallback(async () => {
+    const [health, ktuHealth] = await Promise.all([
+      ktuHealthCheck(),
+      ktuServerHealthCheck()
+    ]);
+
+    if (health.success) {
+      apiFailureCount.current = 0;
+      setApiStatus("online");
+      setApiStatusMessage("My KTU Pro: Online");
+    } else {
+      apiFailureCount.current += 1;
+      const errorText = (health.error || "").toLowerCase();
+
+      if (apiFailureCount.current < 2) {
+        setApiStatus("checking");
+        setApiStatusMessage("Checking My KTU Pro...");
+      } else {
+        setApiStatus("offline");
+        if (errorText.includes("cannot reach backend") || errorText.includes("failed to fetch")) {
+          setApiStatusMessage("My KTU Pro: Network issue");
+        } else if (errorText.includes("timed out")) {
+          setApiStatusMessage("My KTU Pro: Slow");
+        } else {
+          setApiStatusMessage("My KTU Pro: Offline");
+        }
+      }
+    }
+
+    if (ktuHealth.success && ktuHealth.status === 'online') {
+      setKtuServerStatus("online");
+      setKtuServerStatusMessage("KTU Server: Online");
+    } else {
+      setKtuServerStatus("offline");
+      setKtuServerStatusMessage("KTU Server: Offline / Busy");
+    }
+  }, []);
+
+  const stopLoginRetrying = useCallback(() => {
+    if (loginRetryRef.current) clearTimeout(loginRetryRef.current);
+    if (loginCountdownRef.current) clearInterval(loginCountdownRef.current);
+    setIsLoginRetrying(false);
+    setLoginAttempt(0);
+    setLoginCountdown(0);
+    loginInProgress.current = false;
+  }, []);
+
+  useEffect(() => {
+    checkApiStatus();
+    const healthInterval = window.setInterval(checkApiStatus, 30000);
+    return () => clearInterval(healthInterval);
+  }, [checkApiStatus]);
+
+  // Build exam list from semesters
+  const examList = Object.keys(semesters)
+    .sort((a, b) => {
+      const na = parseInt(a.replace('S', ''));
+      const nb = parseInt(b.replace('S', ''));
+      return na - nb;
+    })
+    .map(key => ({ id: key, name: key }));
+
+  // Update results when selected exam changes
+  useEffect(() => {
+    if (selectedExam && semesters[selectedExam]) {
+      setResults(semesters[selectedExam].courses);
+    }
+  }, [selectedExam, semesters]);
+
+  const fetchStudentData = useCallback(async (cookie: string): Promise<boolean> => {
+    try {
+      const data = await ktuGetStudentData(cookie);
+      if (data.success && data.semesters && Object.keys(data.semesters).length > 0) {
+        setSemesters(data.semesters);
+        if (data.studentInfo) setStudentInfo(data.studentInfo);
+
+        // Auto-select highest semester
+        const semKeys = Object.keys(data.semesters).sort((a, b) => {
+          return parseInt(b.replace('S', '')) - parseInt(a.replace('S', ''));
+        });
+        const topSem = semKeys[0];
+        setSelectedExam(topSem);
+        setResults(data.semesters[topSem].courses);
+        setStatusMessage("✅ Results fetched successfully!");
+        return true;
+      } else {
+        setLastError(data.error || "No results found");
+        return false;
+      }
+    } catch {
+      setLastError("Network error. Server may be overloaded.");
+      return false;
+    }
+  }, []);
+
+  const startAutoRetry = useCallback((cookie: string) => {
+    setIsRetrying(true);
+    setAttempt(0);
+    setLastError(null);
+
+    const tryFetch = async (currentAttempt: number) => {
+      if (currentAttempt >= MAX_RETRIES) {
+        stopRetrying();
+        toast({ title: "Max retries reached", description: "Please try again later.", variant: "destructive" });
+        return;
+      }
+      setAttempt(currentAttempt + 1);
+      const success = await fetchStudentData(cookie);
+      if (success) {
+        stopRetrying();
+        toast({ title: "Results loaded! 🎉" });
+        return;
+      }
+      let remaining = RETRY_DELAY / 1000;
+      setCountdown(remaining);
+      countdownRef.current = window.setInterval(() => {
+        remaining--;
+        setCountdown(remaining);
+        if (remaining <= 0 && countdownRef.current) clearInterval(countdownRef.current);
+      }, 1000);
+      retryRef.current = window.setTimeout(() => tryFetch(currentAttempt + 1), RETRY_DELAY);
+    };
+    tryFetch(0);
+  }, [fetchStudentData, stopRetrying, toast]);
+
+  const handleLogin = async (username: string, password: string, isAutoRetry = false) => {
+    if (!isAutoRetry && loginInProgress.current) return;
+    if (!isAutoRetry) {
+      stopLoginRetrying();
+      loginInProgress.current = true;
+    }
+
+    setIsLoading(true);
+    setStatusMessage(isAutoRetry ? `🔄 Login retry attempt ${loginAttempt + 1}...` : "🔗 Connecting to KTU server...");
+    let willRetry = false;
+
+    try {
+      if (!isAutoRetry) setStatusMessage("🔐 Authenticating credentials...");
+      const result = await ktuLogin(username, password);
+
+      if (result.success && result.sessionCookie) {
+        stopLoginRetrying();
+        setSessionCookie(result.sessionCookie);
+        setIsLoggedIn(true);
+        setLoggedInUsername(username);
+        setApiStatus("online");
+        setApiStatusMessage("My KTU Pro: Online");
+        setStatusMessage("📥 Fetching your results...");
+        toast({ title: "Login successful!" });
+
+        const success = await fetchStudentData(result.sessionCookie);
+        if (!success) startAutoRetry(result.sessionCookie);
+      } else {
+        const errText = (result.error || "").toLowerCase();
+        const isTransient = errText.includes("timeout") || errText.includes("network") || errText.includes("fetch") || errText.includes("504") || errText.includes("failed to fetch");
+
+        if (isTransient && (loginAttempt < MAX_RETRIES)) {
+          willRetry = true;
+          setIsLoginRetrying(true);
+          setLoginAttempt(prev => prev + 1);
+          let remaining = RETRY_DELAY / 1000;
+          setLoginCountdown(remaining);
+          setStatusMessage(`Login server busy. Retrying in ${remaining}s...`);
+
+          if (loginCountdownRef.current) clearInterval(loginCountdownRef.current);
+          loginCountdownRef.current = window.setInterval(() => {
+            remaining--;
+            setLoginCountdown(remaining);
+            if (remaining > 0) {
+              setStatusMessage(`Login server busy. Retrying in ${remaining}s...`);
+            } else {
+              if (loginCountdownRef.current) clearInterval(loginCountdownRef.current);
+            }
+          }, 1000);
+
+          if (loginRetryRef.current) clearTimeout(loginRetryRef.current);
+          loginRetryRef.current = window.setTimeout(() => handleLogin(username, password, true), RETRY_DELAY);
+        } else {
+          stopLoginRetrying();
+          if (errText.includes("cannot reach backend")) {
+            setApiStatus("offline");
+            setApiStatusMessage("My KTU Pro: Network issue");
+          }
+          toast({ title: "Login failed", description: result.error || "Check your credentials", variant: "destructive" });
+          setStatusMessage("");
+        }
+      }
+    } catch {
+      if (loginAttempt < MAX_RETRIES) {
+        willRetry = true;
+        setIsLoginRetrying(true);
+        setLoginAttempt(prev => prev + 1);
+        let remaining = RETRY_DELAY / 1000;
+        setLoginCountdown(remaining);
+        setStatusMessage(`Network error. Retrying in ${remaining}s...`);
+
+        if (loginCountdownRef.current) clearInterval(loginCountdownRef.current);
+        loginCountdownRef.current = window.setInterval(() => {
+          remaining--;
+          setLoginCountdown(remaining);
+          if (remaining <= 0 && loginCountdownRef.current) clearInterval(loginCountdownRef.current);
+        }, 1000);
+
+        if (loginRetryRef.current) clearTimeout(loginRetryRef.current);
+        loginRetryRef.current = window.setTimeout(() => handleLogin(username, password, true), RETRY_DELAY);
+      } else {
+        stopLoginRetrying();
+        setApiStatus("offline");
+        setApiStatusMessage("My KTU Pro: Network issue");
+        toast({ title: "Connection error", description: "KTU server may be down", variant: "destructive" });
+        setStatusMessage("");
+      }
+    } finally {
+      if (!willRetry) {
+        setIsLoading(false);
+        loginInProgress.current = false;
+      }
+    }
+  };
+
+  const handleFetchSelectedExam = async () => {
+    if (selectedExam && semesters[selectedExam]) {
+      setResults(semesters[selectedExam].courses);
+      toast({ title: "Results loaded! 🎉" });
+    } else if (sessionCookie) {
+      setIsLoading(true);
+      setStatusMessage("Fetching results...");
+      const success = await fetchStudentData(sessionCookie);
+      if (success) {
+        toast({ title: "Results loaded! 🎉" });
+      } else {
+        startAutoRetry(sessionCookie);
+      }
+      setIsLoading(false);
+    }
+  };
+
+  const handleRetryNow = () => {
+    clearTimers();
+    if (sessionCookie) {
+      const tryFetch = async () => {
+        setAttempt(prev => prev + 1);
+        const success = await fetchStudentData(sessionCookie);
+        if (success) {
+          stopRetrying();
+          toast({ title: "Results loaded! 🎉" });
+        } else {
+          let remaining = RETRY_DELAY / 1000;
+          setCountdown(remaining);
+          countdownRef.current = window.setInterval(() => {
+            remaining--;
+            setCountdown(remaining);
+            if (remaining <= 0 && countdownRef.current) clearInterval(countdownRef.current);
+          }, 1000);
+          retryRef.current = window.setTimeout(() => handleRetryNow(), RETRY_DELAY);
+        }
+      };
+      tryFetch();
+    }
+  };
+
+  const handleLogout = () => {
+    stopRetrying();
+    setIsLoggedIn(false);
+    setSessionCookie(null);
+    setResults([]);
+    setSemesters({});
+    setStudentInfo({});
+    setStatusMessage("");
+    setSelectedExam("");
+    setActiveTab('results');
+    setLoggedInUsername("");
+  };
+
+  // Auto-login if credentials are saved
+  const hasAutoLoggedIn = useRef(false);
+  useEffect(() => {
+    if (hasAutoLoggedIn.current) return;
+    const savedUser = localStorage.getItem("ktu_username");
+    const savedPass = localStorage.getItem("ktu_password");
+    if (savedUser && savedPass) {
+      hasAutoLoggedIn.current = true;
+      handleLogin(savedUser, savedPass);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    return () => clearTimers();
+  }, []);
+
+  // Calculate total backlogs across all semesters (only explicit failures)
+  const totalBacklogs = Object.values(semesters).reduce((count, sem) => {
+    return count + sem.courses.filter(c => {
+      const g = c.grade.trim().toUpperCase();
+      return g === 'F' || g === 'FE';
+    }).length;
+  }, 0);
+
+  // Only these grades count as "published result"
+  const VALID_GRADES = new Set(['S', 'A+', 'A', 'B+', 'B', 'C+', 'C', 'D', 'P', 'F', 'FE']);
+
+  // Calculate total credits across all semesters (only courses with published results)
+  const totalCreditsAll = Object.values(semesters).reduce((acc, sem) => {
+    for (const c of sem.courses) {
+      const cr = parseFloat(c.credits) || 0;
+      const g = c.grade.trim().toUpperCase();
+      // Only count courses with a recognized published grade
+      if (!VALID_GRADES.has(g)) continue;
+      acc.total += cr;
+      if (g !== 'F' && g !== 'FE') {
+        acc.earned += cr;
+      }
+    }
+    return acc;
+  }, { total: 0, earned: 0 });
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      <header className="gradient-header shadow-lg sticky top-0 z-50">
+        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <img src={logoImg} alt="My KTU Pro" className="h-9 w-9 rounded-lg" />
+            <div>
+              <h1 className="text-lg font-bold text-primary-foreground leading-tight">My KTU Pro</h1>
+              <p className="text-[10px] text-primary-foreground/70">Student Portal</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+              onClick={() => setIsAnnouncementsOpen(true)}
+            >
+              <Bell className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+              onClick={() => setIsAdminOpen(true)}
+            >
+              <Shield className="h-4 w-4" />
+            </Button>
+            {isLoggedIn && loggedInUsername && (
+              <button
+                type="button"
+                onClick={() => setIsProfileOpen(true)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-primary-foreground/10 mr-1 hover:bg-primary-foreground/20 transition-colors"
+              >
+                <User className="h-3.5 w-3.5 text-primary-foreground/80" />
+                <span className="text-xs font-medium text-primary-foreground/90 max-w-[96px] truncate">
+                  {studentInfo.registerNumber || loggedInUsername}
+                </span>
+              </button>
+            )}
+            <ThemeToggle />
+            {isLoggedIn && (
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-9 w-9 text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10">
+                <LogOut className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main className="w-full max-w-lg mx-auto px-3 sm:px-4 py-4 sm:py-5 space-y-4 flex-1">
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-3 flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-1.5 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <Circle
+                  className={`h-3 w-3 flex-shrink-0 ${apiStatus === "online" ? "text-success" : apiStatus === "offline" ? "text-destructive" : "text-warning"}`}
+                  fill="currentColor"
+                />
+                <p className="text-xs font-medium truncate">{apiStatusMessage}</p>
+              </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <Circle
+                  className={`h-3 w-3 flex-shrink-0 ${ktuServerStatus === "online" ? "text-success" : ktuServerStatus === "offline" ? "text-destructive" : "text-warning"}`}
+                  fill="currentColor"
+                />
+                <p className="text-xs font-medium truncate">{ktuServerStatusMessage}</p>
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-muted-foreground" onClick={checkApiStatus}>
+              Recheck
+            </Button>
+          </CardContent>
+        </Card>
+
+        {!isLoggedIn ? (
+          <>
+            {apiStatus === "offline" && (
+              <Card className="border-0 shadow-md bg-destructive/10 border-destructive/20">
+                <CardContent className="p-4">
+                  <p className="font-semibold text-sm text-destructive">Can't connect to backend?</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    In India, supabase.co may be DNS-blocked. Fix it by changing your device DNS to:
+                  </p>
+                  <div className="flex gap-3 mt-2">
+                    <code className="text-xs bg-background px-2 py-1 rounded font-mono">1.1.1.1</code>
+                    <code className="text-xs bg-background px-2 py-1 rounded font-mono">8.8.8.8</code>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    Settings → Wi-Fi → your network → DNS → set manually, or use the 1.1.1.1 app from Cloudflare.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+            <Card className="border-0 shadow-md bg-secondary">
+              <CardContent className="p-4 flex items-start gap-3">
+                <Zap className="h-5 w-5 text-warning mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold text-sm text-secondary-foreground">Auto-retry when server is busy</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Login once and we'll keep trying automatically during peak traffic. Keep this page open for auto-retry.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+            {(isLoading || isLoginRetrying) && statusMessage && (
+              <Card className="border-0 shadow-sm mt-4">
+                <CardContent className="p-3 flex items-center gap-2.5">
+                  <RefreshCw className="h-4 w-4 text-primary animate-spin flex-shrink-0" />
+                  <span className="text-sm font-medium">{statusMessage}</span>
+                </CardContent>
+              </Card>
+            )}
+            <LoginForm onLogin={(u, p) => handleLogin(u, p, false)} isLoading={isLoading || isLoginRetrying} />
+          </>
+        ) : (
+          <>
+            {statusMessage && (
+              <Card className="border-0 shadow-sm">
+                <CardContent className="p-3 flex items-center gap-2.5">
+                  {results.length > 0 ? (
+                    <CheckCircle2 className="h-4 w-4 text-success flex-shrink-0" />
+                  ) : (isLoading || isRetrying) ? (
+                    <RefreshCw className="h-4 w-4 text-primary animate-spin flex-shrink-0" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0" />
+                  )}
+                  <span className="text-sm font-medium">{statusMessage}</span>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Student quick summary */}
+            {studentInfo.name && (
+              <Card className="border-0 shadow-sm bg-secondary">
+                <CardContent className="p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-sm">{studentInfo.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {studentInfo.registerNumber} • {studentInfo.branch || "—"}
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => setIsProfileOpen(true)}>
+                      View Details
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
+                    <div className="rounded-md bg-background/70 p-2">
+                      <p className="text-[10px] text-muted-foreground">Course CGPA</p>
+                      <p className="text-sm font-bold text-primary">{studentInfo.cgpa || 'N/A'}</p>
+                    </div>
+                    <div className="rounded-md bg-background/70 p-2">
+                      <p className="text-[10px] text-muted-foreground">Credits</p>
+                      <p className="text-sm font-bold text-success">{totalCreditsAll.earned}/{totalCreditsAll.total}</p>
+                    </div>
+                    <div className="rounded-md bg-background/70 p-2 col-span-2 sm:col-span-1">
+                      <p className="text-[10px] text-muted-foreground">Backlogs</p>
+                      {totalBacklogs > 0 ? (
+                        <p className="text-sm font-bold text-destructive">{totalBacklogs}</p>
+                      ) : (
+                        <p className="text-sm font-semibold text-success">No Backlogs</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Dashboard
+              results={results}
+              examList={examList}
+              selectedExam={selectedExam}
+              onExamChange={(val) => {
+                setSelectedExam(val);
+                if (semesters[val]) setResults(semesters[val].courses);
+              }}
+              onFetch={handleFetchSelectedExam}
+              isLoading={isLoading}
+              isRetrying={isRetrying}
+              onLogout={handleLogout}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+            />
+
+            <AutoRetryStatus
+              isRetrying={isRetrying}
+              attempt={attempt}
+              maxAttempts={MAX_RETRIES}
+              lastError={lastError}
+              countdown={countdown}
+              onStop={stopRetrying}
+              onRetryNow={handleRetryNow}
+            />
+
+            {activeTab === 'results' && (
+              <ResultDisplay results={results} rawHtml="" studentInfo={studentInfo} selectedSemester={selectedExam} />
+            )}
+            {activeTab === 'timetable' && (
+              <UpcomingExams semesters={semesters} currentSemester={studentInfo.currentSemester} />
+            )}
+            {activeTab === 'analysis' && (
+              <CreditAnalysis results={results} />
+            )}
+
+
+            {!isLoading && !isRetrying && results.length === 0 && (
+              <div className="text-center pt-2">
+                <Button onClick={() => sessionCookie && startAutoRetry(sessionCookie)} className="font-semibold">
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Start Auto-Retry
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </main>
+
+      <StudentProfileSheet
+        open={isProfileOpen}
+        onOpenChange={setIsProfileOpen}
+        studentInfo={studentInfo}
+        loggedInUsername={loggedInUsername}
+        semesters={semesters}
+        totalBacklogs={totalBacklogs}
+        totalCreditsAll={totalCreditsAll}
+      />
+
+      <AdminPanel open={isAdminOpen} onClose={() => setIsAdminOpen(false)} />
+      <AnnouncementsPanel open={isAnnouncementsOpen} onClose={() => setIsAnnouncementsOpen(false)} />
+
+      <footer className="text-center py-4">
+        <p className="text-xs text-muted-foreground">Not affiliated with KTU. Use at your own risk.</p>
+      </footer>
+    </div>
+  );
+};
+
+export default Index;

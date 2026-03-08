@@ -1,0 +1,376 @@
+import { useState, useRef, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { Shield, Upload, Mail, Key, FileSpreadsheet, Info, X, Trash2, Calendar } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+
+interface TimetableEntry {
+  id: string;
+  date: string;
+  day: string;
+  semester: string;
+  subject_code?: string;
+  session: string;
+  slot: string;
+}
+
+interface AdminPanelProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function AdminPanel({ open, onClose }: AdminPanelProps) {
+  const { toast } = useToast();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [adminEmail, setAdminEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [uploadResult, setUploadResult] = useState<string>("");
+  const [showCsvGuide, setShowCsvGuide] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [timetableEntries, setTimetableEntries] = useState<TimetableEntry[]>([]);
+  const [isLoadingEntries, setIsLoadingEntries] = useState(false);
+
+  const fetchTimetableEntries = async () => {
+    setIsLoadingEntries(true);
+    const { data, error } = await supabase
+      .from('exam_timetable')
+      .select('id, date, day, semester, session, slot')
+      .order('date', { ascending: true });
+    if (!error && data) {
+      setTimetableEntries(data as TimetableEntry[]);
+    }
+    setIsLoadingEntries(false);
+  };
+
+  const deleteEntry = async (id: string) => {
+    const { error } = await supabase.from('exam_timetable').delete().eq('id', id);
+    if (!error) {
+      setTimetableEntries(prev => prev.filter(e => e.id !== id));
+      toast({ title: 'Entry deleted' });
+    } else {
+      toast({ title: 'Failed to delete', variant: 'destructive' });
+    }
+  };
+
+  const clearAllEntries = async () => {
+    const { error } = await supabase
+      .from('exam_timetable')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000');
+    if (!error) {
+      setTimetableEntries([]);
+      toast({ title: 'All timetable entries cleared' });
+    } else {
+      toast({ title: 'Failed to clear entries', variant: 'destructive' });
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchTimetableEntries();
+    }
+  }, [isAuthenticated]);
+
+  const verifyPassword = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-api', {
+        body: { action: 'verify', password },
+      });
+      if (error) throw error;
+      if (data.success) {
+        setIsAuthenticated(true);
+        // Load settings
+        const { data: settingsData } = await supabase.functions.invoke('admin-api', {
+          body: { action: 'get_settings', password },
+        });
+        if (settingsData?.settings) {
+          setAdminEmail(settingsData.settings.admin_email || '');
+        }
+        toast({ title: "Admin access granted ✅" });
+      } else {
+        toast({ title: "Wrong password", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error verifying password", variant: "destructive" });
+    }
+    setIsLoading(false);
+  };
+
+  const handleCsvUpload = async () => {
+    if (!csvFile) return;
+    setIsLoading(true);
+    setUploadResult("");
+    try {
+      const text = await csvFile.text();
+      const lines = text.trim().split('\n');
+      const header = lines[0].toLowerCase().split(',').map(h => h.trim());
+
+      const dateIdx = header.indexOf('date');
+      const dayIdx = header.indexOf('day');
+      const semIdx = header.indexOf('semester');
+      const schemeIdx = header.indexOf('scheme');
+      const slotIdx = header.indexOf('slot');
+      const sessionIdx = header.indexOf('session');
+      
+
+      if (dateIdx < 0 || semIdx < 0) {
+        toast({ title: "CSV must have 'date' and 'semester' columns", variant: "destructive" });
+        setIsLoading(false);
+        return;
+      }
+
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',').map(c => c.trim());
+        if (cols.length < 2 || !cols[dateIdx]) continue;
+        rows.push({
+          date: cols[dateIdx],
+          day: dayIdx >= 0 ? cols[dayIdx] : '',
+          semester: cols[semIdx],
+          scheme: schemeIdx >= 0 ? cols[schemeIdx] : '2019',
+          slot: slotIdx >= 0 ? cols[slotIdx] : '',
+          session: sessionIdx >= 0 ? cols[sessionIdx] : '',
+        });
+      }
+
+      const { data, error } = await supabase.functions.invoke('admin-api', {
+        body: { action: 'upload_timetable', password, rows },
+      });
+      if (error) throw error;
+      if (data.success) {
+        setUploadResult(`✅ Uploaded ${data.count} exam entries`);
+        toast({ title: `Uploaded ${data.count} entries!` });
+        setCsvFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      } else {
+        setUploadResult(`❌ ${data.error}`);
+      }
+    } catch (e) {
+      setUploadResult(`❌ Upload failed`);
+      toast({ title: "Upload failed", variant: "destructive" });
+    }
+    setIsLoading(false);
+  };
+
+  const saveSettings = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-api', {
+        body: { action: 'update_settings', password, email: adminEmail, newPassword: newPassword || undefined },
+      });
+      if (error) throw error;
+      if (data.success) {
+        if (newPassword) setPassword(newPassword);
+        setNewPassword("");
+        toast({ title: "Settings saved ✅" });
+      }
+    } catch {
+      toast({ title: "Failed to save settings", variant: "destructive" });
+    }
+    setIsLoading(false);
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto border-0 shadow-2xl">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Shield className="h-5 w-5 text-primary" />
+              Admin Panel
+            </CardTitle>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!isAuthenticated ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">Enter admin password to continue</p>
+              <Input
+                type="password"
+                placeholder="Admin password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && verifyPassword()}
+              />
+              <Button onClick={verifyPassword} disabled={isLoading || !password} className="w-full">
+                {isLoading ? "Verifying..." : "Login"}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {/* CSV Upload */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Upload Exam Timetable (CSV)
+                  </h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setShowCsvGuide(!showCsvGuide)}
+                  >
+                    <Info className="h-3.5 w-3.5 mr-1" />
+                    CSV Format
+                  </Button>
+                </div>
+
+                {showCsvGuide && (
+                  <Card className="bg-secondary border-0">
+                    <CardContent className="p-3 space-y-2">
+                      <p className="text-xs font-semibold">CSV Format Guide</p>
+                      <pre className="text-[10px] bg-background rounded p-2 overflow-x-auto font-mono">
+                        {`date,day,semester,scheme,slot,session
+2026-04-17,Fri,S1,2019,A,AN
+2026-04-17,Fri,S3,2019,A,FN
+2026-04-20,Mon,S6,2019,A,AN`}
+                      </pre>
+                      <div className="text-[10px] text-muted-foreground space-y-1">
+                        <p><strong>date</strong>: YYYY-MM-DD format</p>
+                        <p><strong>day</strong>: Mon, Tue, Wed, etc.</p>
+                        <p><strong>semester</strong>: S1–S8</p>
+                        
+                        <p><strong>scheme</strong>: 2019 (default)</p>
+                        <p><strong>slot</strong>: A, B, C, D...</p>
+                        <p><strong>session</strong>: FN (Forenoon) / AN (Afternoon)</p>
+                      </div>
+                      <div className="pt-1 border-t">
+                        <p className="text-[10px] font-semibold text-primary">💡 Converting Calendar to CSV</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          1. Open the KTU exam calendar PDF/image<br />
+                          2. For each exam date, note the semester, slot & session<br />
+                          3. Create rows in the format above<br />
+                          4. Use any text editor or Google Sheets → Download as CSV
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="text-xs w-full file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                  onChange={e => setCsvFile(e.target.files?.[0] || null)}
+                />
+                {csvFile && (
+                  <Button onClick={handleCsvUpload} disabled={isLoading} size="sm" className="w-full">
+                    <FileSpreadsheet className="h-4 w-4 mr-1.5" />
+                    {isLoading ? "Uploading..." : `Upload ${csvFile.name}`}
+                  </Button>
+                )}
+                {uploadResult && (
+                  <p className="text-xs font-medium">{uploadResult}</p>
+                )}
+              </div>
+
+              {/* Manage Timetable Entries */}
+              <div className="space-y-3 pt-2 border-t">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    Manage Timetable ({timetableEntries.length})
+                  </h3>
+                  {timetableEntries.length > 0 && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={clearAllEntries}
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      Clear All
+                    </Button>
+                  )}
+                </div>
+
+                {isLoadingEntries ? (
+                  <p className="text-xs text-muted-foreground">Loading...</p>
+                ) : timetableEntries.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No timetable entries uploaded yet.</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {timetableEntries.map(entry => {
+                      const d = new Date(entry.date);
+                      const dateStr = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+                      return (
+                        <div key={entry.id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50 text-xs">
+                          <div className="flex-1 min-w-0">
+                            <span className="font-medium">{entry.semester}</span>
+                            <span className="text-muted-foreground"> • {dateStr}</span>
+                            {entry.subject_code && (
+                              <span className="text-muted-foreground"> • {entry.subject_code}</span>
+                            )}
+                            {entry.session && (
+                              <span className="text-muted-foreground"> • {entry.session === 'FN' ? 'FN' : 'AN'}</span>
+                            )}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-destructive hover:bg-destructive/10 flex-shrink-0"
+                            onClick={() => deleteEntry(entry.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Email Settings */}
+              <div className="space-y-3 pt-2 border-t">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Mail className="h-4 w-4" />
+                  Notification Email
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Results will be sent to this email when published (admin only).
+                </p>
+                <Input
+                  type="email"
+                  placeholder="admin@example.com"
+                  value={adminEmail}
+                  onChange={e => setAdminEmail(e.target.value)}
+                />
+              </div>
+
+              {/* Change Password */}
+              <div className="space-y-3 pt-2 border-t">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Key className="h-4 w-4" />
+                  Change Admin Password
+                </h3>
+                <Input
+                  type="password"
+                  placeholder="New password (leave blank to keep)"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                />
+              </div>
+
+              <Button onClick={saveSettings} disabled={isLoading} className="w-full">
+                {isLoading ? "Saving..." : "Save Settings"}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
