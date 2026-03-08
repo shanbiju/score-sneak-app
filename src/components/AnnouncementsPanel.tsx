@@ -22,25 +22,14 @@ interface AnnouncementsPanelProps {
 
 async function fetchKtuAnnouncements(): Promise<Announcement[]> {
   try {
-    const { data, error } = await supabase.functions.invoke("ktu-announcements", {
-      body: { action: "get" }
-    });
+    const res = await fetch("/api/announcements");
+    if (!res.ok) throw new Error(`KTU API Error: ${res.status}`);
 
-    if (error) {
-      console.error("Supabase KTU announcements proxy error:", error);
-      return [];
-    }
-
-    // The edge function returns { success: true, count: X, announcements: [...] }
+    const data = await res.json();
     if (data && data.announcements && Array.isArray(data.announcements)) {
       return data.announcements.map((item: any, i: number) => {
         let title = item.title || "Announcement";
-
-        let published_date = "";
-        if (item.published_date) {
-          published_date = item.published_date;
-        }
-
+        let published_date = item.published_date || "";
         const link = item.link || null;
         const attachment = item.attachment_url || null;
 
@@ -54,10 +43,9 @@ async function fetchKtuAnnouncements(): Promise<Announcement[]> {
         };
       });
     }
-
     return [];
   } catch (e) {
-    console.error("Failed to fetch KTU announcements via proxy:", e);
+    console.error("Failed to fetch KTU announcements via Vercel API:", e);
     return [];
   }
 }
