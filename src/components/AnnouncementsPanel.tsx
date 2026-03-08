@@ -5,8 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Bell, ExternalLink, Download, RefreshCw, X, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
-const KTU_RECAPTCHA_SITE_KEY = "6LfKyPAqAAAAAGBsUvD6QfSnqOyFFuzzVxT3s9dx";
-const KTU_API_BASE = "https://api.ktu.edu.in/ktu-web-portal-api/anon";
 
 interface Announcement {
   id: string;
@@ -22,127 +20,46 @@ interface AnnouncementsPanelProps {
   onClose: () => void;
 }
 
-// Load google recaptcha v3 script once
-function loadRecaptchaScript(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if ((window as any).grecaptcha?.execute) {
-      resolve();
-      return;
-    }
-    const existing = document.querySelector(`script[src*="recaptcha/api.js"]`);
-    if (existing) {
-      // Wait for it to load
-      const check = setInterval(() => {
-        if ((window as any).grecaptcha?.execute) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 200);
-      setTimeout(() => { clearInterval(check); reject(new Error("ReCaptcha load timeout")); }, 10000);
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = `https://www.google.com/recaptcha/api.js?render=${KTU_RECAPTCHA_SITE_KEY}`;
-    script.async = true;
-    script.onload = () => {
-      const check = setInterval(() => {
-        if ((window as any).grecaptcha?.execute) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 200);
-      setTimeout(() => { clearInterval(check); reject(new Error("ReCaptcha init timeout")); }, 10000);
-    };
-    script.onerror = () => reject(new Error("Failed to load ReCaptcha script"));
-    document.head.appendChild(script);
-  });
-}
-
-async function getRecaptchaToken(): Promise<string> {
-  await loadRecaptchaScript();
-  return new Promise((resolve, reject) => {
-    (window as any).grecaptcha.ready(() => {
-      (window as any).grecaptcha
-        .execute(KTU_RECAPTCHA_SITE_KEY, { action: "announcements" })
-        .then(resolve)
-        .catch(reject);
-    });
-  });
-}
-
 async function fetchKtuAnnouncements(): Promise<Announcement[]> {
   try {
-    const token = await getRecaptchaToken();
-
-    const response = await fetch(`${KTU_API_BASE}/announcemnts`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "g-recaptcha-response": token,
-      },
-      body: JSON.stringify({ number: 0, size: 10 }),
+    const { data, error } = await supabase.functions.invoke("ktu-announcements", {
+      body: { action: "refresh" }
     });
 
-    if (!response.ok) {
-      // Try alternate endpoint spelling
-      const response2 = await fetch(`${KTU_API_BASE}/announcements`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "g-recaptcha-response": token,
-        },
-        body: JSON.stringify({ number: 0, size: 10 }),
-      });
-      if (!response2.ok) throw new Error(`KTU API error: ${response2.status}`);
-      const data2 = await response2.json();
-      return parseKtuResponse(data2);
+    if (error) {
+      console.error("Supabase KTU announcements proxy error:", error);
+      return [];
     }
 
-    const data = await response.json();
-    return parseKtuResponse(data);
+    // The edge function returns { success: true, count: X, announcements: [...] }
+    if (data && data.announcements && Array.isArray(data.announcements)) {
+      return data.announcements.map((item: any, i: number) => {
+        let title = item.title || "Announcement";
+
+        let published_date = "";
+        if (item.published_date) {
+          published_date = item.published_date;
+        }
+
+        const link = item.link || null;
+        const attachment = item.attachment_url || null;
+
+        return {
+          id: item.id || `ktu-${i}`,
+          title,
+          link,
+          attachment_url: attachment,
+          published_date,
+          fetched_at: item.fetched_at || new Date().toISOString(),
+        };
+      });
+    }
+
+    return [];
   } catch (e) {
-    console.error("Failed to fetch KTU announcements:", e);
+    console.error("Failed to fetch KTU announcements via proxy:", e);
     return [];
   }
-}
-
-function parseKtuResponse(data: any): Announcement[] {
-  // KTU API may return announcements in different formats
-  const items: any[] = Array.isArray(data) ? data : (data?.content || data?.announcements || data?.data || []);
-
-  return items.slice(0, 10).map((item: any, i: number) => {
-    const title = item.subject || item.title || item.name || "Announcement";
-    const dateRaw = item.publishedDate || item.date || item.createdDate || "";
-    let published_date = "";
-    if (dateRaw) {
-      try {
-        const d = new Date(dateRaw);
-        published_date = d.toLocaleDateString("en-IN", {
-          weekday: "long",
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        });
-      } catch {
-        published_date = String(dateRaw);
-      }
-    }
-
-    const link = item.encUrl
-      ? `https://ktu.edu.in/Menu/announcements_view?announcementId=${item.encUrl}`
-      : item.link || null;
-
-    const attachment = item.attachmentUrl || item.attachment_url || null;
-
-    return {
-      id: item.id || `ktu-${i}`,
-      title,
-      link,
-      attachment_url: attachment,
-      published_date,
-      fetched_at: new Date().toISOString(),
-    };
-  });
 }
 
 export function AnnouncementsPanel({ open, onClose }: AnnouncementsPanelProps) {
