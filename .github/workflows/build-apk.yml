@@ -29,10 +29,13 @@ jobs:
           java-version: '17'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build Web App
         run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://yauscubichhabeuoxvmz.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhdXNjdWJpY2hoYWJldW94dm16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5MDkyNDcsImV4cCI6MjA4ODQ4NTI0N30.BlNmZXW0Q_yzdt8OfJTvv-3odKc0M5NNLsNub4VlqRE
 
       - name: Sync Capacitor
         run: |
