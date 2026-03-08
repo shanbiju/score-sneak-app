@@ -10,7 +10,7 @@ import { ktuHealthCheck, ktuServerHealthCheck, ktuLogin, ktuGetStudentData, type
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { LogOut, RefreshCw, Zap, CheckCircle2, AlertTriangle, User, Circle, ExternalLink, Bell, Shield, Download } from "lucide-react";
+import { LogOut, RefreshCw, Zap, CheckCircle2, AlertTriangle, User, Circle, ExternalLink, Bell, Shield } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import { AdminPanel } from "@/components/AdminPanel";
 import { AnnouncementsPanel } from "@/components/AnnouncementsPanel";
@@ -621,12 +621,7 @@ const Index = () => {
       <AdminPanel open={isAdminOpen} onClose={() => setIsAdminOpen(false)} />
       <AnnouncementsPanel open={isAnnouncementsOpen} onClose={() => setIsAnnouncementsOpen(false)} />
 
-      <footer className="text-center py-4 flex flex-col items-center gap-3">
-        <Button variant="outline" size="sm" className="rounded-full shadow-sm bg-primary/5 text-primary border-primary/20 hover:bg-primary/10" asChild>
-          <a href="https://github.com/shanbiju/score-sneak-app/releases/latest/download/app-debug.apk" target="_blank" rel="noopener noreferrer">
-            <Download className="mr-2 h-4 w-4" /> Download Android App (APK)
-          </a>
-        </Button>
+      <footer className="text-center py-4">
         <p className="text-xs text-muted-foreground">Not affiliated with KTU. Use at your own risk.</p>
       </footer>
     </div>
