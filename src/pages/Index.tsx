@@ -392,47 +392,47 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="gradient-header shadow-lg sticky top-0 z-50">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <img src={logoImg} alt="My KTU Pro" className="h-9 w-9 rounded-lg" />
+        <div className="max-w-lg mx-auto px-3 py-2 sm:px-4 sm:py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <img src={logoImg} alt="My KTU Pro" className="h-7 w-7 sm:h-9 sm:w-9 rounded-md sm:rounded-lg" />
             <div>
-              <h1 className="text-lg font-bold text-primary-foreground leading-tight">My KTU Pro</h1>
-              <p className="text-[10px] text-primary-foreground/70">Student Portal</p>
+              <h1 className="text-base sm:text-lg font-bold text-primary-foreground leading-tight">My KTU Pro</h1>
+              <p className="text-[9px] sm:text-[10px] text-primary-foreground/70">Student Portal</p>
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5 sm:gap-1">
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+              className="h-8 w-8 sm:h-9 sm:w-9 text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
               onClick={() => setIsAnnouncementsOpen(true)}
             >
-              <Bell className="h-4 w-4" />
+              <Bell className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+              className="h-8 w-8 sm:h-9 sm:w-9 text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
               onClick={() => setIsAdminOpen(true)}
             >
-              <Shield className="h-4 w-4" />
+              <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
             {isLoggedIn && loggedInUsername && (
               <button
                 type="button"
                 onClick={() => setIsProfileOpen(true)}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-primary-foreground/10 mr-1 hover:bg-primary-foreground/20 transition-colors"
+                className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 sm:px-2 sm:py-1 rounded-md sm:rounded-lg bg-primary-foreground/10 mr-0.5 sm:mr-1 hover:bg-primary-foreground/20 transition-colors"
               >
-                <User className="h-3.5 w-3.5 text-primary-foreground/80" />
-                <span className="text-xs font-medium text-primary-foreground/90 max-w-[96px] truncate">
+                <User className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary-foreground/80" />
+                <span className="text-[10px] sm:text-xs font-medium text-primary-foreground/90 max-w-[80px] sm:max-w-[96px] truncate">
                   {studentInfo.registerNumber || loggedInUsername}
                 </span>
               </button>
             )}
             <ThemeToggle />
             {isLoggedIn && (
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-9 w-9 text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10">
-                <LogOut className="h-4 w-4" />
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-9 sm:w-9 text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10">
+                <LogOut className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </Button>
             )}
           </div>
