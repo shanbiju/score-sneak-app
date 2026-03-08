@@ -2,7 +2,7 @@ import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
     appId: 'com.shanbiju.scoresneak',
-    appName: 'Score Sneak',
+    appName: 'MY KTU PRO',
     webDir: 'dist',
     bundledWebRuntime: false
 };

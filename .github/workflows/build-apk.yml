@@ -41,6 +41,15 @@ jobs:
         run: |
           npx cap add android || npx cap sync android
 
+      - name: Set App Icon
+        run: |
+          # Copy official logo as app icon to all density folders
+          for dir in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            cp src/assets/logo.png android/app/src/main/res/mipmap-${dir}/ic_launcher.png
+            cp src/assets/logo.png android/app/src/main/res/mipmap-${dir}/ic_launcher_round.png
+            cp src/assets/logo.png android/app/src/main/res/mipmap-${dir}/ic_launcher_foreground.png
+          done
+
       - name: Build APK
         run: |
           cd android
