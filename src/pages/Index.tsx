@@ -10,7 +10,7 @@ import { ktuHealthCheck, ktuServerHealthCheck, ktuLogin, ktuGetStudentData, type
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { LogOut, RefreshCw, Zap, CheckCircle2, AlertTriangle, User, Circle, ExternalLink, Bell, Shield } from "lucide-react";
+import { LogOut, RefreshCw, Zap, CheckCircle2, AlertTriangle, User, Circle, ExternalLink, Bell, Shield, Download } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import { AdminPanel } from "@/components/AdminPanel";
 import { AnnouncementsPanel } from "@/components/AnnouncementsPanel";
@@ -401,6 +401,16 @@ const Index = () => {
             </div>
           </div>
           <div className="flex items-center gap-0.5 sm:gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-9 sm:w-9 text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+              asChild
+            >
+              <a href="https://github.com/shanbiju/score-sneak-app/releases/latest/download/app-debug.apk" target="_blank" rel="noopener noreferrer">
+                <Download className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              </a>
+            </Button>
             <Button
               variant="ghost"
               size="icon"
