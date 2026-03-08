@@ -37,8 +37,7 @@ jobs:
           echo '<html><body>Redirecting...</body></html>' > dist/index.html
 
       - name: Sync Capacitor
-        run: |
-          npx cap add android || npx cap sync android
+        run: npx cap sync android
 
       - name: Build APK
         run: |
