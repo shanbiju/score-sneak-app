@@ -23,7 +23,7 @@ interface AnnouncementsPanelProps {
 async function fetchKtuAnnouncements(): Promise<Announcement[]> {
   try {
     const { data, error } = await supabase.functions.invoke("ktu-announcements", {
-      body: { action: "refresh" }
+      body: { action: "get" }
     });
 
     if (error) {
