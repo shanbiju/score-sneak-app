@@ -139,6 +139,57 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: true });
     }
 
+    if (action === 'add_announcement') {
+      const { title, link, published_date } = body as { title: string; link?: string; published_date?: string };
+      if (!title) return jsonResponse({ success: false, error: 'Title is required' }, 400);
+
+      const res = await restRequest('admin_announcements', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify([{ title, link, published_date: published_date || new Date().toISOString().split('T')[0] }]),
+      });
+
+      return jsonResponse({ success: true, data: res });
+    }
+
+    if (action === 'edit_announcement') {
+      const { id, title, link, published_date } = body as { id: string; title: string; link?: string; published_date?: string };
+      if (!id || !title) return jsonResponse({ success: false, error: 'ID and Title are required' }, 400);
+
+      const res = await restRequest(`admin_announcements?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ title, link, published_date }),
+      });
+
+      return jsonResponse({ success: true, data: res });
+    }
+
+    if (action === 'delete_announcement') {
+      const { id } = body as { id: string };
+      if (!id) return jsonResponse({ success: false, error: 'ID is required' }, 400);
+
+      await restRequest(`admin_announcements?id=eq.${id}`, {
+        method: 'DELETE',
+      });
+
+      return jsonResponse({ success: true });
+    }
+
+    if (action === 'run_sql') {
+      const { sql } = body as { sql: string };
+
+      if (!sql) {
+        return jsonResponse({ success: false, error: 'No SQL provided' }, 400);
+      }
+
+      // Execute SQL using the Postgres REST interface (requires RPC or service role bypass)
+      // Since there's no direct SQL execution via REST without pg_graphql or rpc, 
+      // we'll create the tables and policies using standard REST endpoints if possible, 
+      // or we just define a temp RPC function.
+      return jsonResponse({ success: false, error: 'SQL execution not supported via REST directly yet' }, 501);
+    }
+
     if (action === 'get_settings') {
       const data = (await restRequest('admin_settings?select=key,value', {
         method: 'GET',

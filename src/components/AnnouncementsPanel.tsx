@@ -106,8 +106,26 @@ export function AnnouncementsPanel({ open, onClose }: AnnouncementsPanelProps) {
         ];
       }
 
-      // 3. Combine: exams first, then KTU announcements
-      const allAnnouncements = [...examNotifications, ...ktuAnnouncements];
+      // 3. Fetch Custom Admin Announcements
+      let customAnnouncements: Announcement[] = [];
+      const { data: adminData, error: adminError } = await supabase
+        .from("admin_announcements")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!adminError && adminData) {
+        customAnnouncements = adminData.map(item => ({
+          id: item.id || `custom-${item.title}`,
+          title: `📌 ${item.title}`,
+          link: item.link || null,
+          attachment_url: null,
+          published_date: item.published_date || "",
+          fetched_at: item.created_at || new Date().toISOString(),
+        }));
+      }
+
+      // 4. Combine: exams first, then custom announcements, then KTU announcements
+      const allAnnouncements = [...examNotifications, ...customAnnouncements, ...ktuAnnouncements];
 
       if (allAnnouncements.length === 0) {
         setFetchError("Could not fetch announcements. Try visiting KTU website directly.");

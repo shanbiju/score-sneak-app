@@ -1,1 +1,1 @@
-ALTER TABLE public.exam_timetable ADD COLUMN subject_code TEXT;
+ALTER TABLE public.exam_timetable ADD COLUMN IF NOT EXISTS subject_code TEXT;

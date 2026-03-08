@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -10,58 +10,85 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.4"
   }
   public: {
     Tables: {
+      admin_announcements: {
+        Row: {
+          created_at: string | null
+          id: string
+          link: string | null
+          published_date: string | null
+          title: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          link?: string | null
+          published_date?: string | null
+          title: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          link?: string | null
+          published_date?: string | null
+          title?: string
+        }
+        Relationships: []
+      }
       admin_settings: {
         Row: {
           key: string
-          updated_at: string
+          updated_at: string | null
           value: string
         }
         Insert: {
           key: string
-          updated_at?: string
+          updated_at?: string | null
           value: string
         }
         Update: {
           key?: string
-          updated_at?: string
+          updated_at?: string | null
           value?: string
         }
         Relationships: []
       }
       exam_timetable: {
         Row: {
-          created_at: string
+          created_at: string | null
           date: string
-          day: string
+          day: string | null
           id: string
-          scheme: string
+          scheme: string | null
           semester: string
-          session: string
-          slot: string
+          session: string | null
+          slot: string | null
+          subject_code: string | null
         }
         Insert: {
-          created_at?: string
+          created_at?: string | null
           date: string
-          day: string
+          day?: string | null
           id?: string
-          scheme?: string
+          scheme?: string | null
           semester: string
-          session: string
-          slot: string
+          session?: string | null
+          slot?: string | null
+          subject_code?: string | null
         }
         Update: {
-          created_at?: string
+          created_at?: string | null
           date?: string
-          day?: string
+          day?: string | null
           id?: string
-          scheme?: string
+          scheme?: string | null
           semester?: string
-          session?: string
-          slot?: string
+          session?: string | null
+          slot?: string | null
+          subject_code?: string | null
         }
         Relationships: []
       }

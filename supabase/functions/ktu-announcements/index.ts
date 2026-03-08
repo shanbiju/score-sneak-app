@@ -1,3 +1,15 @@
+import * as https from "node:https";
+
+function fetchInsecure(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    https.get(url, { rejectUnauthorized: false }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => resolve(data));
+    }).on('error', reject);
+  });
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -61,15 +73,14 @@ Deno.serve(async (req) => {
     const action = body.action || 'get';
 
     if (action === 'refresh') {
-      const res = await fetch('https://ktu.edu.in/Menu/announcements', {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-      });
+      let html = '';
+      try {
+        html = await fetchInsecure('https://ktu.edu.in/Menu/announcements');
+      } catch (err) {
+        console.error('Insecure fetch failed', err);
+        throw err;
+      }
 
-      const html = await res.text();
       const announcements: Array<{
         title: string;
         link: string;
