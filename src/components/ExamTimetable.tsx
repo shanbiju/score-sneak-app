@@ -16,58 +16,67 @@ interface ExamEntry {
     semester: string;
 }
 
-// KTU EEE 2019 Scheme: subject_code → slot mapping
+// KTU Civil (CET) & Common 2019 Scheme: subject_code → slot mapping
 const KTU_SLOT_SUBJECTS: Record<string, Record<string, { code: string; name: string }>> = {
     S1: {
         A: { code: "MAT101", name: "Linear Algebra and Calculus" },
-        B: { code: "PHT100", name: "Engineering Physics" },
-        C: { code: "EST100", name: "Engineering Mechanics" },
-        D: { code: "EST120", name: "Basics of Civil and Mechanical Engineering" },
+        B: { code: "PHT110 / CYT100", name: "Engg. Physics B / Engg. Chemistry" },
+        C: { code: "EST100 / EST110", name: "Engg. Mechanics / Engg. Graphics" },
+        D: { code: "EST120 / EST130", name: "Basics of Civil & Mech / Basics of Electrical & Electronics" },
         E: { code: "HUN101", name: "Life Skills" },
     },
     S2: {
         A: { code: "MAT102", name: "Vector Calculus Differential Equations and Transforms" },
-        B: { code: "CYT100", name: "Engineering Chemistry" },
-        C: { code: "EST110", name: "Engineering Graphics" },
-        D: { code: "EST130", name: "Basics of Electrical and Electronics Engineering" },
+        B: { code: "PHT110 / CYT100", name: "Engg. Physics B / Engg. Chemistry" },
+        C: { code: "EST100 / EST110", name: "Engg. Mechanics / Engg. Graphics" },
+        D: { code: "EST120 / EST130", name: "Basics of Civil & Mech / Basics of Electrical & Electronics" },
         E: { code: "HUN102", name: "Professional Communication" },
         F: { code: "EST102", name: "Programming in C" },
     },
     S3: {
         A: { code: "MAT201", name: "Partial Differential Equations and Complex Analysis" },
-        B: { code: "EET201", name: "Circuits and Networks" },
-        C: { code: "EET203", name: "Analog Electronics" },
-        D: { code: "EET205", name: "Electrical Measurement and Instrumentation" },
-        E: { code: "EST200", name: "Design and Engineering" },
+        B: { code: "CET201", name: "Mechanics of Solids" },
+        C: { code: "CET203", name: "Fluid Mechanics and Hydraulics" },
+        D: { code: "CET205", name: "Surveying and Geomatics" },
+        E: { code: "EST200 / HUT200", name: "Design & Engineering / Professional Ethics" },
+        F: { code: "MCN201", name: "Sustainable Engineering" },
     },
     S4: {
-        A: { code: "MAT204", name: "Probability Random Process and Numerical Methods" },
-        B: { code: "EET202", name: "DC Machines and Transformers" },
-        C: { code: "EET204", name: "Electromagnetic Theory" },
-        D: { code: "EET206", name: "Digital Electronics" },
-        E: { code: "MCN202", name: "Constitution of India" },
+        A: { code: "MAT202", name: "Probability Statistics and Numerical Methods" },
+        B: { code: "CET202", name: "Engineering Geology" },
+        C: { code: "CET204", name: "Geotechnical Engineering I" },
+        D: { code: "CET206", name: "Transportation Engineering" },
+        E: { code: "EST200 / HUT200", name: "Design & Engineering / Professional Ethics" },
+        F: { code: "MCN202", name: "Constitution of India" },
     },
     S5: {
-        A: { code: "EET301", name: "Power Systems I" },
-        B: { code: "EET303", name: "Microprocessors and Microcontrollers" },
-        C: { code: "EET305", name: "Power Electronics" },
-        D: { code: "EET307", name: "Signals and Systems" },
+        A: { code: "CET301", name: "Structural Analysis I" },
+        B: { code: "CET303", name: "Design of Concrete Structures" },
+        C: { code: "CET305", name: "Geotechnical Engineering II" },
+        D: { code: "CET307", name: "Hydrology and Water Resources Engineering" },
+        E: { code: "CET309", name: "Construction Technology and Management" },
+        F: { code: "MCN301", name: "Disaster Management" },
     },
     S6: {
-        A: { code: "EET302", name: "Power Systems II" },
-        B: { code: "EET304", name: "Control Systems" },
-        C: { code: "EET306", name: "Electrical Drives" },
-        D: { code: "EET308", name: "Embedded Systems" },
+        A: { code: "CET302", name: "Structural Analysis II" },
+        B: { code: "CET304", name: "Environmental Engineering" },
+        C: { code: "CET306", name: "Design of Hydraulic Structures" },
+        D: { code: "CETXXX", name: "Program Elective I" },
+        E: { code: "HUT300", name: "Industrial Economics and Foreign Trade" },
+        F: { code: "CET308", name: "Comprehensive Course Work" },
     },
     S7: {
-        A: { code: "EET401", name: "Power System Analysis" },
-        B: { code: "EET403", name: "High Voltage Engineering" },
-        C: { code: "EET405", name: "Renewable Energy Systems" },
+        A: { code: "CET401", name: "Design of Steel Structures" },
+        B: { code: "CETXXX", name: "Program Elective II" },
+        C: { code: "CETXXX", name: "Open Elective" },
+        D: { code: "MCN401", name: "Industrial Safety Engineering" },
     },
     S8: {
-        A: { code: "EET402", name: "Electric Power Utilization" },
-        B: { code: "EET404", name: "Smart Grid" },
-        C: { code: "EET406", name: "Project" },
+        A: { code: "CET402", name: "Quantity Surveying and Valuation" },
+        B: { code: "CETXXX", name: "Program Elective III" },
+        C: { code: "CETXXX", name: "Program Elective IV" },
+        D: { code: "CETXXX", name: "Program Elective V" },
+        E: { code: "CET404", name: "Comprehensive Viva Voce" },
     },
 };
 
@@ -234,10 +243,10 @@ export function ExamTimetable() {
                             <div
                                 key={exam.id}
                                 className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${isPast
-                                        ? "bg-muted/30 opacity-60"
-                                        : daysLeft <= 3
-                                            ? "bg-red-500/5 border border-red-500/20"
-                                            : "bg-muted/50 hover:bg-muted"
+                                    ? "bg-muted/30 opacity-60"
+                                    : daysLeft <= 3
+                                        ? "bg-red-500/5 border border-red-500/20"
+                                        : "bg-muted/50 hover:bg-muted"
                                     }`}
                             >
                                 {/* Date column */}
@@ -264,8 +273,8 @@ export function ExamTimetable() {
                                         )}
                                         <Badge
                                             className={`text-[10px] px-1.5 py-0 ${exam.session === "FN"
-                                                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
-                                                    : "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300"
+                                                ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                                                : "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300"
                                                 }`}
                                         >
                                             {exam.session === "FN" ? "🌅 FN" : exam.session === "AN" ? "🌆 AN" : exam.session || "—"}

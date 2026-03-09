@@ -134,8 +134,8 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
       setIsLoadingExams(false);
     };
 
-    // Only fetch if there are failed subjects in this semester
-    if (results.some(r => isFailed(r.grade))) {
+    // Only fetch if there are failed subjects or coming soon subjects in this semester
+    if (results.some(r => isFailed(r.grade) || isResultComingSoon(r))) {
       fetchExams();
     } else {
       setExams([]);
@@ -143,22 +143,21 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
   }, [results]);
 
   const ktuSubjectSlots: Record<string, string> = {
-    // S1
-    "MAT101": "A", "PHT100": "B", "EST100": "C", "EST120": "D", "HUN101": "E",
-    // S2
-    "MAT102": "A", "CYT100": "B", "EST110": "C", "EST130": "D", "HUN102": "E", "EST102": "F",
+    // S1 & S2 Common
+    "MAT101": "A", "PHT110": "B", "CYT100": "B", "EST100": "C", "EST110": "C",
+    "EST120": "D", "EST130": "D", "HUN101": "E", "MAT102": "A", "HUN102": "E", "EST102": "F",
     // S3
-    "MAT201": "A", "EET201": "B", "EET203": "C", "EET205": "D", "EST200": "E",
+    "MAT201": "A", "CET201": "B", "CET203": "C", "CET205": "D", "EST200": "E", "HUT200": "E", "MCN201": "F",
     // S4
-    "MAT204": "A", "EET202": "B", "EET204": "C", "EET206": "D", "MCN202": "E",
+    "MAT202": "A", "CET202": "B", "CET204": "C", "CET206": "D", "MCN202": "F",
     // S5
-    "EET301": "A", "EET303": "B", "EET305": "C", "EET307": "D",
+    "CET301": "A", "CET303": "B", "CET305": "C", "CET307": "D", "CET309": "E", "MCN301": "F",
     // S6
-    "EET302": "A", "EET304": "B", "EET306": "C", "EET308": "D",
+    "CET302": "A", "CET304": "B", "CET306": "C", "HUT300": "E", "CET308": "F",
     // S7
-    "EET401": "A", "EET403": "B", "EET405": "C",
+    "CET401": "A", "MCN401": "D",
     // S8
-    "EET402": "A", "EET404": "B", "EET406": "C"
+    "CET402": "A", "CET404": "E"
   };
 
   const getExamDetailsForSubject = (subjectCode: string, absoluteIndex: number) => {
@@ -261,6 +260,7 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
               const reviewPending = isReviewPending(r);
               const comingSoon = isResultComingSoon(r);
               const isFail = isFailed(r.grade);
+              const needsExamDetails = isFail || comingSoon;
               const absoluteIndex = results.findIndex(item => item.code === r.code);
               const examDetails = getExamDetailsForSubject(r.code, absoluteIndex);
 
@@ -279,18 +279,18 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
                         <p className="text-sm font-medium leading-tight sm:truncate">{r.courseName}</p>
                         <div className="flex items-center gap-2 flex-wrap mt-1">
                           <p className="text-xs text-muted-foreground">{r.code}</p>
-                          {isFail && examDetails && (
-                            <Badge variant="destructive" className="text-[10px] font-medium leading-none px-1.5 py-0.5">
+                          {needsExamDetails && examDetails && (
+                            <Badge variant={isFail ? "destructive" : "secondary"} className={`text-[10px] font-medium leading-none px-1.5 py-0.5 ${comingSoon ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' : ''}`}>
                               <Calendar className="h-3 w-3 mr-1 inline" />
                               {examDetails.formattedDate}
                             </Badge>
                           )}
-                          {isFail && !examDetails && !isLoadingExams && (
+                          {needsExamDetails && !examDetails && !isLoadingExams && (
                             <span className="text-[10px] text-muted-foreground italic">
-                              No supply date posted
+                              No exam date posted
                             </span>
                           )}
-                          {isFail && isLoadingExams && (
+                          {needsExamDetails && isLoadingExams && (
                             <span className="text-[10px] text-muted-foreground flex items-center">
                               <Loader2 className="h-3 w-3 animate-spin mr-1" /> Checking dates...
                             </span>
@@ -346,7 +346,7 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
                             <p className="text-sm font-medium">{examDetails.slot || '—'}</p>
                           </div>
                         </div>
-                      ) : isFail ? (
+                      ) : needsExamDetails ? (
                         <div className="py-2 text-center text-sm text-muted-foreground">
                           {isLoadingExams ? 'Checking timetable...' : 'No upcoming exam scheduled for this subject yet.'}
                         </div>
