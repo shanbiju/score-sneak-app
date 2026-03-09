@@ -31,9 +31,6 @@ export default async function handler(req, res) {
 
         const html = await response.text();
 
-        // We only need to fetch the announcements since Supabase Edge will do the parsing when "refresh" is called.
-        // Wait, let's just parse it directly here and return it! It's safer and bypasses Supabase Edge completely for this specific thing!
-
         const announcements = [];
 
         const itemRegex = /<li[^>]*class="[^"]*announcement[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;

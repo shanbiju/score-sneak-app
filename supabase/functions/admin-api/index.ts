@@ -116,6 +116,7 @@ Deno.serve(async (req) => {
             day: r.day || '',
             semester: r.semester,
             scheme: r.scheme || '2019',
+            subject_code: r.subject_code || '',
             slot: r.slot || '',
             session: r.session || '',
           }))

@@ -68,45 +68,7 @@ export function AnnouncementsPanel({ open, onClose }: AnnouncementsPanelProps) {
         console.warn("KTU live fetch failed:", e);
       }
 
-      // 2. Fetch the nearest 5 upcoming exams from our timetable DB
-      const today = new Date().toISOString().split("T")[0];
-      const { data: exams, error: timetableError } = await supabase
-        .from("exam_timetable")
-        .select("id, date, day, session, slot, semester")
-        .gte("date", today)
-        .order("date", { ascending: true })
-        .limit(5);
-
-      let examNotifications: Announcement[] = [];
-      if (!timetableError && exams && exams.length > 0) {
-        const header: Announcement = {
-          id: "timetable-header",
-          title: "📢 Upcoming Exam Timetable",
-          link: null,
-          attachment_url: null,
-          published_date: `Next ${exams.length} exams`,
-          fetched_at: new Date().toISOString(),
-        };
-        examNotifications = [
-          header,
-          ...exams.map((exam: any) => {
-            const d = new Date(exam.date);
-            const dateStr = d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-            const sessionLabel = exam.session === "FN" ? "🌅 Forenoon" : exam.session === "AN" ? "🌆 Afternoon" : (exam.session || "");
-            const subjectLabel = exam.semester ? `${exam.semester} Exam` : "Exam";
-            return {
-              id: `exam-${exam.id}`,
-              title: `📋 ${subjectLabel}`,
-              link: null,
-              attachment_url: null,
-              published_date: `${dateStr} • ${exam.day || ""} • ${sessionLabel}${exam.slot ? ` • ${exam.slot}` : ""}`,
-              fetched_at: new Date().toISOString(),
-            };
-          }),
-        ];
-      }
-
-      // 3. Fetch Custom Admin Announcements
+      // 2. Fetch Custom Admin Announcements
       let customAnnouncements: Announcement[] = [];
       const { data: adminData, error: adminError } = await supabase
         .from("admin_announcements")
@@ -124,8 +86,8 @@ export function AnnouncementsPanel({ open, onClose }: AnnouncementsPanelProps) {
         }));
       }
 
-      // 4. Combine: exams first, then custom announcements, then KTU announcements
-      const allAnnouncements = [...examNotifications, ...customAnnouncements, ...ktuAnnouncements];
+      // 3. Combine: custom announcements first, then KTU announcements
+      const allAnnouncements = [...customAnnouncements, ...ktuAnnouncements];
 
       if (allAnnouncements.length === 0) {
         setFetchError("Could not fetch announcements. Try visiting KTU website directly.");

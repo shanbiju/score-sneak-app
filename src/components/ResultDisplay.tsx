@@ -124,7 +124,7 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
       const today = new Date().toISOString().split('T')[0];
       const { data, error } = await supabase
         .from('exam_timetable')
-        .select('id, date, day, session, slot, semester')
+        .select('id, date, day, session, slot, semester, subject_code')
         .gte('date', today)
         .order('date', { ascending: true });
 
@@ -142,7 +142,26 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
     }
   }, [results]);
 
-  const getExamDetailsForSubject = (subjectCode: string) => {
+  const ktuSubjectSlots: Record<string, string> = {
+    // S1
+    "MAT101": "A", "PHT100": "B", "EST100": "C", "EST120": "D", "HUN101": "E",
+    // S2
+    "MAT102": "A", "CYT100": "B", "EST110": "C", "EST130": "D", "HUN102": "E", "EST102": "F",
+    // S3
+    "MAT201": "A", "EET201": "B", "EET203": "C", "EET205": "D", "EST200": "E",
+    // S4
+    "MAT204": "A", "EET202": "B", "EET204": "C", "EET206": "D", "MCN202": "E",
+    // S5
+    "EET301": "A", "EET303": "B", "EET305": "C", "EET307": "D",
+    // S6
+    "EET302": "A", "EET304": "B", "EET306": "C", "EET308": "D",
+    // S7
+    "EET401": "A", "EET403": "B", "EET405": "C",
+    // S8
+    "EET402": "A", "EET404": "B", "EET406": "C"
+  };
+
+  const getExamDetailsForSubject = (subjectCode: string, absoluteIndex: number) => {
     // 1. Try exact subject_code match first
     const exactMatch = exams.find(e =>
       e.subject_code && e.subject_code.trim().toUpperCase() === subjectCode.trim().toUpperCase()
@@ -155,17 +174,21 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
       };
     }
 
-    // 2. Fallback: match by semester if selectedSemester is available
+    // 2. Fallback matching: Use specific mapped slots
     if (selectedSemester) {
-      const semMatch = exams.find(e =>
-        (!e.subject_code || !e.subject_code.trim()) && e.semester === selectedSemester
-      );
-      if (semMatch) {
-        const d = new Date(semMatch.date);
-        return {
-          ...semMatch,
-          formattedDate: d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-        };
+      const expectedSlot = ktuSubjectSlots[subjectCode.trim().toUpperCase()];
+
+      if (expectedSlot) {
+        const slotMatch = exams.find(e =>
+          e.semester === selectedSemester && e.slot && e.slot.trim().toUpperCase() === expectedSlot
+        );
+        if (slotMatch) {
+          const d = new Date(slotMatch.date);
+          return {
+            ...slotMatch,
+            formattedDate: d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+          };
+        }
       }
     }
 
@@ -238,7 +261,8 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
               const reviewPending = isReviewPending(r);
               const comingSoon = isResultComingSoon(r);
               const isFail = isFailed(r.grade);
-              const examDetails = getExamDetailsForSubject(r.code);
+              const absoluteIndex = results.findIndex(item => item.code === r.code);
+              const examDetails = getExamDetailsForSubject(r.code, absoluteIndex);
 
               return (
                 <AccordionItem

@@ -14,7 +14,7 @@ import { LogOut, RefreshCw, Zap, CheckCircle2, AlertTriangle, User, Circle, Exte
 import logoImg from "@/assets/logo.png";
 import { AdminPanel } from "@/components/AdminPanel";
 import { AnnouncementsPanel } from "@/components/AnnouncementsPanel";
-import { UpcomingExams } from "@/components/UpcomingExams";
+
 
 const MAX_RETRIES = 30;
 const RETRY_DELAY = 5000;
@@ -29,7 +29,7 @@ const Index = () => {
   const [semesters, setSemesters] = useState<Record<string, SemesterData>>({});
   const [studentInfo, setStudentInfo] = useState<StudentInfo>({});
   const [selectedExam, setSelectedExam] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<'results' | 'timetable' | 'analysis'>('results');
+  const [activeTab, setActiveTab] = useState<'results' | 'analysis'>('results');
   const [loggedInUsername, setLoggedInUsername] = useState<string>("");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -434,8 +434,8 @@ const Index = () => {
                 className="flex items-center gap-1 sm:gap-1.5 px-1.5 py-1 sm:px-2 sm:py-1 rounded-md sm:rounded-lg bg-primary-foreground/10 mr-0.5 sm:mr-1 hover:bg-primary-foreground/20 transition-colors"
               >
                 <User className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary-foreground/80" />
-                <span className="text-[10px] sm:text-xs font-medium text-primary-foreground/90 max-w-[80px] sm:max-w-[96px] truncate">
-                  {studentInfo.registerNumber || loggedInUsername}
+                <span className="text-[10px] sm:text-xs font-medium text-primary-foreground/90 max-w-[100px] sm:max-w-[140px] truncate">
+                  {studentInfo.name || studentInfo.registerNumber || loggedInUsername}
                 </span>
               </button>
             )}
@@ -598,9 +598,7 @@ const Index = () => {
             {activeTab === 'results' && (
               <ResultDisplay results={results} rawHtml="" studentInfo={studentInfo} selectedSemester={selectedExam} />
             )}
-            {activeTab === 'timetable' && (
-              <UpcomingExams semesters={semesters} currentSemester={studentInfo.currentSemester} />
-            )}
+
             {activeTab === 'analysis' && (
               <CreditAnalysis results={results} />
             )}

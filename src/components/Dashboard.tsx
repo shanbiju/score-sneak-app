@@ -57,8 +57,8 @@ interface DashboardProps {
   isLoading: boolean;
   isRetrying: boolean;
   onLogout: () => void;
-  activeTab: 'results' | 'timetable' | 'analysis';
-  onTabChange: (tab: 'results' | 'timetable' | 'analysis') => void;
+  activeTab: 'results' | 'analysis';
+  onTabChange: (tab: 'results' | 'analysis') => void;
 }
 
 export function Dashboard({
@@ -137,28 +137,19 @@ export function Dashboard({
           <button
             onClick={() => onTabChange('results')}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all min-w-[100px] ${activeTab === 'results'
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
               }`}
           >
             <BookOpen className="h-4 w-4" />
             Results
           </button>
-          <button
-            onClick={() => onTabChange('timetable')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all min-w-[100px] ${activeTab === 'timetable'
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-              }`}
-          >
-            <RefreshCw className="h-4 w-4" />
-            Timetable
-          </button>
+
           <button
             onClick={() => onTabChange('analysis')}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all min-w-[100px] ${activeTab === 'analysis'
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
               }`}
           >
             <BarChart3 className="h-4 w-4" />

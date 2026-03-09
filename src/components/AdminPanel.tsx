@@ -168,6 +168,7 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
       const schemeIdx = header.indexOf('scheme');
       const slotIdx = header.indexOf('slot');
       const sessionIdx = header.indexOf('session');
+      const subjectIdx = header.findIndex(h => h === 'subject_code' || h === 'subjectcode' || h === 'subject code' || h === 'subject');
 
 
       if (dateIdx < 0 || semIdx < 0) {
@@ -185,6 +186,7 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
           day: dayIdx >= 0 ? cols[dayIdx] : '',
           semester: cols[semIdx],
           scheme: schemeIdx >= 0 ? cols[schemeIdx] : '2019',
+          subject_code: subjectIdx >= 0 ? cols[subjectIdx] : '',
           slot: slotIdx >= 0 ? cols[slotIdx] : '',
           session: sessionIdx >= 0 ? cols[sessionIdx] : '',
         });
@@ -283,16 +285,16 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
                     <CardContent className="p-3 space-y-2">
                       <p className="text-xs font-semibold">CSV Format Guide</p>
                       <pre className="text-[10px] bg-background rounded p-2 overflow-x-auto font-mono">
-                        {`date,day,semester,scheme,slot,session
-2026-04-17,Fri,S1,2019,A,AN
-2026-04-17,Fri,S3,2019,A,FN
-2026-04-20,Mon,S6,2019,A,AN`}
+                        {`date,day,semester,subject_code,scheme,slot,session
+2026-04-17,Fri,S1,MAT101,2019,A,AN
+2026-04-17,Fri,S3,CS201,2019,A,FN
+2026-04-20,Mon,S6,,2019,A,AN`}
                       </pre>
                       <div className="text-[10px] text-muted-foreground space-y-1">
-                        <p><strong>date</strong>: YYYY-MM-DD format</p>
+                        <p><strong>date</strong>: YYYY-MM-DD format (Required)</p>
                         <p><strong>day</strong>: Mon, Tue, Wed, etc.</p>
-                        <p><strong>semester</strong>: S1–S8</p>
-
+                        <p><strong>semester</strong>: S1–S8 (Required)</p>
+                        <p><strong>subject_code</strong>: Exact code e.g. MAT101 (Important for per-subject dates)</p>
                         <p><strong>scheme</strong>: 2019 (default)</p>
                         <p><strong>slot</strong>: A, B, C, D...</p>
                         <p><strong>session</strong>: FN (Forenoon) / AN (Afternoon)</p>
