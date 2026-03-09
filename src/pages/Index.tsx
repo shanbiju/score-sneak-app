@@ -14,6 +14,7 @@ import { LogOut, RefreshCw, Zap, CheckCircle2, AlertTriangle, User, Circle, Exte
 import logoImg from "@/assets/logo.png";
 import { AdminPanel } from "@/components/AdminPanel";
 import { AnnouncementsPanel } from "@/components/AnnouncementsPanel";
+import { ExamTimetable } from "@/components/ExamTimetable";
 
 
 const MAX_RETRIES = 30;
@@ -29,7 +30,7 @@ const Index = () => {
   const [semesters, setSemesters] = useState<Record<string, SemesterData>>({});
   const [studentInfo, setStudentInfo] = useState<StudentInfo>({});
   const [selectedExam, setSelectedExam] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<'results' | 'analysis'>('results');
+  const [activeTab, setActiveTab] = useState<'results' | 'analysis' | 'timetable'>('results');
   const [loggedInUsername, setLoggedInUsername] = useState<string>("");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -601,6 +602,10 @@ const Index = () => {
 
             {activeTab === 'analysis' && (
               <CreditAnalysis results={results} />
+            )}
+
+            {activeTab === 'timetable' && (
+              <ExamTimetable />
             )}
 
 

@@ -2,7 +2,7 @@ import { SGPACircle } from "@/components/SGPACircle";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BookOpen, RefreshCw, BarChart3 } from "lucide-react";
+import { BookOpen, RefreshCw, BarChart3, Calendar } from "lucide-react";
 import type { ParsedResult, ExamOption } from "@/lib/ktu-api";
 
 // KTU grade point mapping (2019 scheme)
@@ -57,8 +57,8 @@ interface DashboardProps {
   isLoading: boolean;
   isRetrying: boolean;
   onLogout: () => void;
-  activeTab: 'results' | 'analysis';
-  onTabChange: (tab: 'results' | 'analysis') => void;
+  activeTab: 'results' | 'analysis' | 'timetable';
+  onTabChange: (tab: 'results' | 'analysis' | 'timetable') => void;
 }
 
 export function Dashboard({
@@ -153,7 +153,18 @@ export function Dashboard({
               }`}
           >
             <BarChart3 className="h-4 w-4" />
-            Credit Analysis
+            Analysis
+          </button>
+
+          <button
+            onClick={() => onTabChange('timetable')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-medium transition-all min-w-[100px] ${activeTab === 'timetable'
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+              }`}
+          >
+            <Calendar className="h-4 w-4" />
+            Timetable
           </button>
         </div>
       )}
