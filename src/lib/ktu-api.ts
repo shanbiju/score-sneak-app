@@ -1,6 +1,4 @@
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://usyuijszhqjibkizuwmj.supabase.co';
-const PROXY_BASE = `${SUPABASE_URL}/functions/v1/ktu-proxy`;
-const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+import { supabase } from "@/integrations/supabase/client";
 export interface KtuLoginResult {
   success: boolean;
   sessionCookie?: string;
@@ -45,37 +43,32 @@ export interface KtuHealthResult {
 }
 
 async function invokeKtuProxy<T>(body: Record<string, unknown>, timeoutMs = 25000): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  let timeoutId: number | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(
+      () => reject(new Error("KTU request timed out. Please try again.")),
+      timeoutMs
+    );
+  });
 
   try {
-    const res = await fetch(PROXY_BASE, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': ANON_KEY,
-        'Authorization': `Bearer ${ANON_KEY}`,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    const invokePromise = supabase.functions.invoke<T>("ktu-proxy", { body });
+    const result = await Promise.race([invokePromise, timeoutPromise]);
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(text || `HTTP ${res.status}`);
+    if (result.error) {
+      throw result.error;
     }
 
-    return await res.json() as T;
+    return result.data as T;
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('KTU request timed out. Please try again.');
-    }
     if (error instanceof TypeError && /failed to fetch/i.test(error.message)) {
       throw new Error('Cannot reach backend. Try changing DNS to 1.1.1.1 or 8.8.8.8.');
     }
     throw error;
   } finally {
-    window.clearTimeout(timeoutId);
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
   }
 }
 

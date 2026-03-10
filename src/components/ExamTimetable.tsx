@@ -16,6 +16,82 @@ interface ExamEntry {
     semester: string;
 }
 
+const BUNDLED_TIMETABLE_CSV_PATH = "/data/ktu_btech_exam_schedule_2019_scheme.csv";
+
+function normalizeSlot(slot: string | undefined): string {
+    const normalized = (slot || "").trim().toUpperCase();
+    return normalized === "-" ? "" : normalized;
+}
+
+function normalizeSession(session: string | undefined): string {
+    const normalized = (session || "").trim().toUpperCase();
+    if (normalized === "FORENOON") return "FN";
+    if (normalized === "AFTERNOON") return "AN";
+    return normalized;
+}
+
+function normalizeSemester(semester: string | undefined): string {
+    const normalized = (semester || "").trim().toUpperCase();
+    if (/^\d+$/.test(normalized)) return `S${normalized}`;
+    return normalized;
+}
+
+function parseBundledTimetableCsv(csvText: string): ExamEntry[] {
+    const lines = csvText
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+
+    if (lines.length < 2) return [];
+
+    const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+    const dateIdx = header.indexOf("date");
+    const dayIdx = header.indexOf("day");
+    const semIdx = header.indexOf("semester");
+    const slotIdx = header.indexOf("slot");
+    const sessionIdx = header.indexOf("session");
+    const subjectIdx = header.findIndex(
+        (h) => h === "subject_code" || h === "subjectcode" || h === "subject code" || h === "subject"
+    );
+
+    if (dateIdx < 0 || semIdx < 0) return [];
+
+    const parsed: ExamEntry[] = [];
+    for (let i = 1; i < lines.length; i += 1) {
+        const cols = lines[i].split(",").map((c) => c.trim());
+        const date = cols[dateIdx];
+        const semester = normalizeSemester(cols[semIdx]);
+        if (!date || !semester) continue;
+
+        parsed.push({
+            id: `csv-${i}`,
+            date,
+            day: dayIdx >= 0 ? cols[dayIdx] || "" : "",
+            semester,
+            slot: normalizeSlot(slotIdx >= 0 ? cols[slotIdx] : ""),
+            session: normalizeSession(sessionIdx >= 0 ? cols[sessionIdx] : ""),
+            subject_code: subjectIdx >= 0 ? (cols[subjectIdx] || "").toUpperCase() : "",
+        });
+    }
+
+    return parsed;
+}
+
+function mergeExamEntries(primary: ExamEntry[], fallback: ExamEntry[]): ExamEntry[] {
+    // Fallback rows first, then DB rows override same date+semester+slot+session key.
+    const merged = new Map<string, ExamEntry>();
+
+    const put = (entry: ExamEntry) => {
+        const key = `${entry.date}|${entry.semester}|${entry.slot}|${entry.session}`;
+        merged.set(key, entry);
+    };
+
+    fallback.forEach(put);
+    primary.forEach(put);
+
+    return Array.from(merged.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // KTU Civil (CET) & Common 2019 Scheme: subject_code → slot mapping
 const KTU_SLOT_SUBJECTS: Record<string, Record<string, { code: string; name: string }>> = {
     S1: {
@@ -98,7 +174,11 @@ function getDaysLeftBadge(days: number) {
     return <Badge variant="secondary" className="text-[10px]">{days}d left</Badge>;
 }
 
-export function ExamTimetable() {
+export function ExamTimetable({
+    studentSemesters
+}: {
+    studentSemesters?: Record<string, { courses: { code: string; grade: string }[] }>
+}) {
     const [exams, setExams] = useState<ExamEntry[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedSemester, setSelectedSemester] = useState<string>("all");
@@ -107,14 +187,29 @@ export function ExamTimetable() {
     useEffect(() => {
         const fetchExams = async () => {
             setIsLoading(true);
-            const { data, error } = await supabase
-                .from("exam_timetable")
-                .select("id, date, day, session, slot, semester, subject_code")
-                .order("date", { ascending: true });
+            const [dbResult, fallbackCsvText] = await Promise.all([
+                supabase
+                    .from("exam_timetable")
+                    .select("id, date, day, session, slot, semester, subject_code")
+                    .order("date", { ascending: true }),
+                fetch(BUNDLED_TIMETABLE_CSV_PATH)
+                    .then((r) => (r.ok ? r.text() : ""))
+                    .catch(() => ""),
+            ]);
 
-            if (!error && data) {
-                setExams(data as ExamEntry[]);
-            }
+            const dbRows: ExamEntry[] =
+                !dbResult.error && dbResult.data
+                    ? (dbResult.data as ExamEntry[]).map((row) => ({
+                          ...row,
+                          semester: normalizeSemester(row.semester),
+                          slot: normalizeSlot(row.slot),
+                          session: normalizeSession(row.session),
+                          subject_code: row.subject_code ? row.subject_code.trim().toUpperCase() : "",
+                      }))
+                    : [];
+
+            const fallbackRows = fallbackCsvText ? parseBundledTimetableCsv(fallbackCsvText) : [];
+            setExams(mergeExamEntries(dbRows, fallbackRows));
             setIsLoading(false);
         };
         fetchExams();
@@ -130,25 +225,40 @@ export function ExamTimetable() {
         });
     }, [exams]);
 
-    // Filtered + sorted exams
-    const displayedExams = useMemo(() => {
-        let filtered = exams;
-        if (selectedSemester !== "all") {
-            filtered = exams.filter((e) => e.semester === selectedSemester);
+    // The student's actual subject codes taken
+    const studentSubjects = useMemo(() => {
+        const subjects = new Set<string>();
+        if (studentSemesters) {
+            for (const sem of Object.values(studentSemesters)) {
+                if (sem.courses) {
+                    for (const course of sem.courses) {
+                        if (course.code) {
+                            subjects.add(course.code.trim().toUpperCase());
+                        }
+                    }
+                }
+            }
         }
+        return subjects;
+    }, [studentSemesters]);
 
-        const sorted = [...filtered];
-        if (sortMode === "slot") {
-            sorted.sort((a, b) => {
-                if (a.semester !== b.semester) return a.semester.localeCompare(b.semester);
-                return (a.slot || "").localeCompare(b.slot || "");
-            });
-        } else {
-            sorted.sort((a, b) => a.date.localeCompare(b.date));
-        }
-        return sorted;
-    }, [exams, selectedSemester, sortMode]);
+    // Highest semester for which we have published data in result payload
+    const highestPublishedSemester = useMemo(() => {
+        if (!studentSemesters) return null;
+        const nums = Object.keys(studentSemesters)
+            .map((s) => parseInt(s.replace("S", ""), 10))
+            .filter((n) => Number.isFinite(n));
+        if (nums.length === 0) return null;
+        return Math.max(...nums);
+    }, [studentSemesters]);
 
+    // Most users need upcoming dates for the active semester even before results are published.
+    const likelyCurrentSemester = useMemo(() => {
+        if (!highestPublishedSemester) return null;
+        return `S${Math.min(8, highestPublishedSemester + 1)}`;
+    }, [highestPublishedSemester]);
+
+    // Format utility for later filtering mapping
     const getSubjectForSlot = (semester: string, slot: string, subjectCode?: string) => {
         // 1. If the exam entry already has a subject_code, use it
         if (subjectCode && subjectCode.trim()) {
@@ -169,6 +279,48 @@ export function ExamTimetable() {
         }
         return null;
     };
+
+    // Filtered + sorted exams
+    const displayedExams = useMemo(() => {
+        let filtered = exams;
+
+        // 1. Filter out exams that do not match the student's actual assumed subjects
+        if (studentSubjects.size > 0) {
+            filtered = filtered.filter(exam => {
+                const currentPublishedLabel = highestPublishedSemester ? `S${highestPublishedSemester}` : null;
+                const isResultPendingSem =
+                    exam.semester === likelyCurrentSemester || exam.semester === currentPublishedLabel;
+                if (isResultPendingSem) return true;
+
+                const resolvedSubject = getSubjectForSlot(exam.semester, exam.slot, exam.subject_code);
+                // Keep date row even when slot/subject mapping is unavailable.
+                if (!resolvedSubject) return true;
+
+                // Code could be "EST100 / EST110", we split to match against student's subject list
+                const possibleCodes = resolvedSubject.code.split("/").map(c => c.trim().toUpperCase());
+                // Elective placeholders should not hide date rows.
+                if (possibleCodes.some(c => c.includes("XXX"))) return true;
+
+                return possibleCodes.some(c => studentSubjects.has(c));
+            });
+        }
+
+        // 2. Filter by active semester tab
+        if (selectedSemester !== "all") {
+            filtered = filtered.filter((e) => e.semester === selectedSemester);
+        }
+
+        const sorted = [...filtered];
+        if (sortMode === "slot") {
+            sorted.sort((a, b) => {
+                if (a.semester !== b.semester) return a.semester.localeCompare(b.semester);
+                return (a.slot || "").localeCompare(b.slot || "");
+            });
+        } else {
+            sorted.sort((a, b) => a.date.localeCompare(b.date));
+        }
+        return sorted;
+    }, [exams, selectedSemester, sortMode, studentSubjects, highestPublishedSemester, likelyCurrentSemester]);
 
     if (isLoading) {
         return (

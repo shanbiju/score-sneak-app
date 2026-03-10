@@ -605,7 +605,7 @@ const Index = () => {
             )}
 
             {activeTab === 'timetable' && (
-              <ExamTimetable />
+              <ExamTimetable studentSemesters={semesters} />
             )}
 
 
