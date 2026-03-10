@@ -146,7 +146,7 @@ function mapAnnouncements(apiRows) {
       message,
       link: "https://ktu.edu.in/Menu/announcements",
       attachment_url: encryptId
-        ? `/api/announcement-attachment?encryptId=${encodeURIComponent(encryptId)}&name=${encodeURIComponent(attachmentName)}`
+        ? `/api/announcement-attachment?encryptId=${encodeURIComponent(encryptId)}&name=${encodeURIComponent(attachmentName)}&download=1`
         : "",
       published_date: row?.announcementDate || "",
     };

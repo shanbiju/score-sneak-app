@@ -5,13 +5,23 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Shield, Upload, Mail, Key, FileSpreadsheet, Info, X, Trash2, Calendar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  TIMETABLE_REQUIRED_HEADERS,
+  isValidSemester,
+  isValidSession,
+  isValidSlot,
+  normalizeSemester,
+  normalizeSession,
+  normalizeSlot,
+  parseTimetableCsv,
+} from "@/lib/timetable";
 
 interface TimetableEntry {
   id: string;
   date: string;
   day: string;
   semester: string;
-  subject_code?: string;
+  scheme?: string;
   session: string;
   slot: string;
 }
@@ -61,7 +71,7 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
       body: { action: "add_announcement", password, title: newTitle, link: newLink, published_date: newDate },
     });
     if (!error && data?.success) {
-      toast({ title: "Announcement added ✅" });
+      toast({ title: "Announcement added" });
       setNewTitle(""); setNewLink(""); setNewDate("");
       fetchCustomAnnouncements();
     } else {
@@ -89,10 +99,16 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
     setIsLoadingEntries(true);
     const { data, error } = await supabase
       .from('exam_timetable')
-      .select('id, date, day, semester, session, slot')
+      .select('id, date, day, semester, scheme, session, slot')
       .order('date', { ascending: true });
     if (!error && data) {
-      setTimetableEntries(data as TimetableEntry[]);
+      const normalized = (data as TimetableEntry[]).map((row) => ({
+        ...row,
+        semester: normalizeSemester(row.semester),
+        slot: normalizeSlot(row.slot),
+        session: normalizeSession(row.session),
+      }));
+      setTimetableEntries(normalized);
     }
     setIsLoadingEntries(false);
   };
@@ -143,7 +159,7 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
         if (settingsData?.settings) {
           setAdminEmail(settingsData.settings.admin_email || '');
         }
-        toast({ title: "Admin access granted ✅" });
+        toast({ title: "Admin access granted" });
       } else {
         toast({ title: "Wrong password", variant: "destructive" });
       }
@@ -159,37 +175,60 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
     setUploadResult("");
     try {
       const text = await csvFile.text();
-      const lines = text.trim().split('\n');
-      const header = lines[0].toLowerCase().split(',').map(h => h.trim());
+      const parsed = parseTimetableCsv(text);
+      const missingHeaders = TIMETABLE_REQUIRED_HEADERS.filter((h) => parsed.headerIndex[h] === undefined);
 
-      const dateIdx = header.indexOf('date');
-      const dayIdx = header.indexOf('day');
-      const semIdx = header.indexOf('semester');
-      const schemeIdx = header.indexOf('scheme');
-      const slotIdx = header.indexOf('slot');
-      const sessionIdx = header.indexOf('session');
-      const subjectIdx = header.findIndex(h => h === 'subject_code' || h === 'subjectcode' || h === 'subject code' || h === 'subject');
-
-
-      if (dateIdx < 0 || semIdx < 0) {
-        toast({ title: "CSV must have 'date' and 'semester' columns", variant: "destructive" });
+      if (missingHeaders.length > 0) {
+        toast({
+          title: "Invalid CSV format",
+          description: `Missing columns: ${missingHeaders.join(", ")}`,
+          variant: "destructive",
+        });
         setIsLoading(false);
         return;
       }
 
-      const rows = [];
-      for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(',').map(c => c.trim());
-        if (cols.length < 2 || !cols[dateIdx]) continue;
+      const rows: Array<{
+        date: string;
+        day: string;
+        semester: string;
+        scheme: string;
+        subject_code: string;
+        slot: string;
+        session: string;
+      }> = [];
+      let skippedCount = 0;
+
+      for (const row of parsed.rows) {
+        const validDate = /^\d{4}-\d{2}-\d{2}$/.test(row.date);
+        const validSemester = isValidSemester(row.semester);
+        const validSlot = isValidSlot(row.slot);
+        const validSession = isValidSession(row.session);
+
+        if (!validDate || !validSemester || !validSlot || !validSession) {
+          skippedCount += 1;
+          continue;
+        }
+
         rows.push({
-          date: cols[dateIdx],
-          day: dayIdx >= 0 ? cols[dayIdx] : '',
-          semester: cols[semIdx],
-          scheme: schemeIdx >= 0 ? cols[schemeIdx] : '2019',
-          subject_code: subjectIdx >= 0 ? cols[subjectIdx] : '',
-          slot: slotIdx >= 0 ? cols[slotIdx] : '',
-          session: sessionIdx >= 0 ? cols[sessionIdx] : '',
+          date: row.date,
+          day: row.day || "",
+          semester: normalizeSemester(row.semester),
+          scheme: row.scheme || "2019",
+          subject_code: "",
+          slot: normalizeSlot(row.slot),
+          session: normalizeSession(row.session),
         });
+      }
+
+      if (rows.length === 0) {
+        toast({
+          title: "No valid rows found",
+          description: "Use date, day, semester, scheme, slot, session with valid S1-S8 and FN/AN values.",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
       }
 
       const { data, error } = await supabase.functions.invoke('admin-api', {
@@ -197,15 +236,17 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
       });
       if (error) throw error;
       if (data.success) {
-        setUploadResult(`✅ Uploaded ${data.count} exam entries`);
+        const skippedMessage = skippedCount > 0 ? ` (${skippedCount} invalid row(s) skipped)` : "";
+        setUploadResult(`Uploaded ${data.count} exam entries${skippedMessage}`);
         toast({ title: `Uploaded ${data.count} entries!` });
         setCsvFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
+        fetchTimetableEntries();
       } else {
-        setUploadResult(`❌ ${data.error}`);
+        setUploadResult(`Upload failed: ${data.error}`);
       }
-    } catch (e) {
-      setUploadResult(`❌ Upload failed`);
+    } catch {
+      setUploadResult("Upload failed");
       toast({ title: "Upload failed", variant: "destructive" });
     }
     setIsLoading(false);
@@ -221,7 +262,7 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
       if (data.success) {
         if (newPassword) setPassword(newPassword);
         setNewPassword("");
-        toast({ title: "Settings saved ✅" });
+        toast({ title: "Settings saved" });
       }
     } catch {
       toast({ title: "Failed to save settings", variant: "destructive" });
@@ -285,27 +326,26 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
                     <CardContent className="p-3 space-y-2">
                       <p className="text-xs font-semibold">CSV Format Guide</p>
                       <pre className="text-[10px] bg-background rounded p-2 overflow-x-auto font-mono">
-                        {`date,day,semester,subject_code,scheme,slot,session
-2026-04-17,Fri,S1,MAT101,2019,A,AN
-2026-04-17,Fri,S3,CS201,2019,A,FN
-2026-04-20,Mon,S6,,2019,A,AN`}
+                        {`date,day,semester,scheme,slot,session
+2026-04-17,Fri,S1,2019,A,FN
+2026-04-18,Sat,S3,2019,C,AN
+2026-04-20,Mon,S6,2019,F,FN`}
                       </pre>
                       <div className="text-[10px] text-muted-foreground space-y-1">
                         <p><strong>date</strong>: YYYY-MM-DD format (Required)</p>
                         <p><strong>day</strong>: Mon, Tue, Wed, etc.</p>
-                        <p><strong>semester</strong>: S1–S8 (Required)</p>
-                        <p><strong>subject_code</strong>: Exact code e.g. MAT101 (Important for per-subject dates)</p>
-                        <p><strong>scheme</strong>: 2019 (default)</p>
-                        <p><strong>slot</strong>: A, B, C, D...</p>
+                        <p><strong>semester</strong>: S1-S8 (Required)</p>
+                        <p><strong>scheme</strong>: 2019 (or your scheme value)</p>
+                        <p><strong>slot</strong>: A, B, C, D, E, F (or - if not assigned)</p>
                         <p><strong>session</strong>: FN (Forenoon) / AN (Afternoon)</p>
                       </div>
                       <div className="pt-1 border-t">
-                        <p className="text-[10px] font-semibold text-primary">💡 Converting Calendar to CSV</p>
+                        <p className="text-[10px] font-semibold text-primary">Converting Calendar to CSV</p>
                         <p className="text-[10px] text-muted-foreground">
                           1. Open the KTU exam calendar PDF/image<br />
                           2. For each exam date, note the semester, slot & session<br />
                           3. Create rows in the format above<br />
-                          4. Use any text editor or Google Sheets → Download as CSV
+                          4. Use any text editor or Google Sheets to download as CSV
                         </p>
                       </div>
                     </CardContent>
@@ -435,13 +475,10 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
                         <div key={entry.id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50 text-xs">
                           <div className="flex-1 min-w-0">
                             <span className="font-medium">{entry.semester}</span>
-                            <span className="text-muted-foreground"> • {dateStr}</span>
-                            {entry.subject_code && (
-                              <span className="text-muted-foreground"> • {entry.subject_code}</span>
-                            )}
-                            {entry.session && (
-                              <span className="text-muted-foreground"> • {entry.session === 'FN' ? 'FN' : 'AN'}</span>
-                            )}
+                            <span className="text-muted-foreground"> - {dateStr}</span>
+                            {entry.slot && <span className="text-muted-foreground"> - Slot {entry.slot}</span>}
+                            {entry.session && <span className="text-muted-foreground"> - {entry.session}</span>}
+                            {entry.scheme && <span className="text-muted-foreground"> - Scheme {entry.scheme}</span>}
                           </div>
                           <Button
                             variant="ghost"
@@ -499,3 +536,4 @@ export function AdminPanel({ open, onClose }: AdminPanelProps) {
     </div>
   );
 }
+

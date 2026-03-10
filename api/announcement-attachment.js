@@ -27,6 +27,24 @@ function inferMimeType(fileName, base64Data) {
   return "application/octet-stream";
 }
 
+function normalizeBase64Payload(input) {
+  let value = String(input || "").trim();
+  const dataUriMatch = value.match(/^data:[^;]+;base64,(.+)$/i);
+  if (dataUriMatch?.[1]) {
+    value = dataUriMatch[1];
+  }
+
+  value = value.replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  if (!value) return "";
+
+  const padLength = value.length % 4;
+  if (padLength > 0) {
+    value += "=".repeat(4 - padLength);
+  }
+
+  return value;
+}
+
 export default async function handler(req, res) {
   setCorsHeaders(res);
 
@@ -47,13 +65,28 @@ export default async function handler(req, res) {
       return;
     }
 
+    const forceDownload = String(req.query?.download || "1") !== "0";
     const fileName = sanitizeFileName(req.query?.name);
-    const base64Data = await fetchKtuAttachmentBase64(encryptId);
+    const base64Data = normalizeBase64Payload(await fetchKtuAttachmentBase64(encryptId));
+    if (!base64Data) {
+      throw new Error("Attachment payload is empty");
+    }
+
     const fileBuffer = Buffer.from(base64Data, "base64");
+    if (!fileBuffer.length) {
+      throw new Error("Attachment payload is invalid");
+    }
+
     const mimeType = inferMimeType(fileName, base64Data);
 
     res.setHeader("Content-Type", mimeType);
-    res.setHeader("Content-Disposition", `inline; filename="${fileName}"`);
+    const encodedFileName = encodeURIComponent(fileName);
+    res.setHeader(
+      "Content-Disposition",
+      `${forceDownload ? "attachment" : "inline"}; filename="${fileName}"; filename*=UTF-8''${encodedFileName}`
+    );
+    res.setHeader("Content-Length", String(fileBuffer.length));
+    res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cache-Control", "public, max-age=600");
     res.status(200).send(fileBuffer);
   } catch (error) {

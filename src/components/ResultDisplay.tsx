@@ -11,6 +11,13 @@ import {
 } from "@/components/ui/accordion";
 import { BookOpen, CheckCircle2, XCircle, Download, Clock, Loader2, Calendar } from "lucide-react";
 import type { ParsedResult, StudentInfo } from "@/lib/ktu-api";
+import {
+  normalizeSemester,
+  normalizeSession,
+  normalizeSlot,
+  parseTimetableCsv,
+  type TimetableExamEntry,
+} from "@/lib/timetable";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -24,75 +31,9 @@ interface ResultDisplayProps {
   selectedSemester?: string;
 }
 
-interface ExamEntry {
-  id: string;
-  date: string;
-  day: string;
-  session: string;
-  slot: string;
-  subject_code?: string;
-  semester: string;
-}
+type ExamEntry = TimetableExamEntry;
 
 const BUNDLED_TIMETABLE_CSV_PATH = "/data/ktu_btech_exam_schedule_2019_scheme.csv";
-
-function normalizeSlot(slot?: string): string {
-  return (slot || "").trim().toUpperCase();
-}
-
-function normalizeSemester(semester?: string): string {
-  const normalized = (semester || "").trim().toUpperCase();
-  if (/^\d+$/.test(normalized)) return `S${normalized}`;
-  return normalized;
-}
-
-function normalizeSession(session?: string): string {
-  const normalized = (session || "").trim().toUpperCase();
-  if (normalized === "FORENOON") return "FN";
-  if (normalized === "AFTERNOON") return "AN";
-  return normalized;
-}
-
-function parseBundledTimetableCsv(csvText: string): ExamEntry[] {
-  const lines = csvText
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  if (lines.length < 2) return [];
-
-  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
-  const dateIdx = header.indexOf("date");
-  const dayIdx = header.indexOf("day");
-  const semIdx = header.indexOf("semester");
-  const slotIdx = header.indexOf("slot");
-  const sessionIdx = header.indexOf("session");
-  const subjectIdx = header.findIndex(
-    (h) => h === "subject_code" || h === "subjectcode" || h === "subject code" || h === "subject"
-  );
-
-  if (dateIdx < 0 || semIdx < 0) return [];
-
-  const rows: ExamEntry[] = [];
-  for (let i = 1; i < lines.length; i += 1) {
-    const cols = lines[i].split(",").map((c) => c.trim());
-    const date = cols[dateIdx];
-    const semester = normalizeSemester(cols[semIdx]);
-    if (!date || !semester) continue;
-
-    rows.push({
-      id: `csv-${i}`,
-      date,
-      day: dayIdx >= 0 ? cols[dayIdx] || "" : "",
-      semester,
-      slot: normalizeSlot(slotIdx >= 0 ? cols[slotIdx] : ""),
-      session: normalizeSession(sessionIdx >= 0 ? cols[sessionIdx] : ""),
-      subject_code: subjectIdx >= 0 ? (cols[subjectIdx] || "").toUpperCase() : "",
-    });
-  }
-
-  return rows;
-}
 
 function mergeExamEntries(primary: ExamEntry[], fallback: ExamEntry[]): ExamEntry[] {
   // Keep fallback rows, override with primary DB rows for same date+sem+slot+session.
@@ -227,7 +168,7 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
           : [];
 
       const fallbackRows = fallbackCsvText
-        ? parseBundledTimetableCsv(fallbackCsvText).filter((e) => e.date >= today)
+        ? parseTimetableCsv(fallbackCsvText).rows.filter((e) => e.date >= today)
         : [];
 
       setExams(mergeExamEntries(dbRows, fallbackRows));

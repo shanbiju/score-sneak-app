@@ -121,8 +121,7 @@ export function AnnouncementsPanel({ open, onClose }: AnnouncementsPanelProps) {
                     {a.attachment_url && (
                       <a
                         href={a.attachment_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        download
                         className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline"
                       >
                         <Download className="h-3 w-3" />

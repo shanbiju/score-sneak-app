@@ -7,6 +7,9 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const REST_BASE = `${SUPABASE_URL}/rest/v1`;
+const VALID_SEMESTERS = new Set(['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']);
+const VALID_SLOTS = new Set(['A', 'B', 'C', 'D', 'E', 'F']);
+const VALID_SESSIONS = new Set(['FN', 'AN']);
 
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -72,6 +75,30 @@ async function upsertAdminSetting(key: string, value: string) {
   });
 }
 
+function normalizeSemester(value: string | undefined) {
+  const normalized = String(value || '').trim().toUpperCase();
+  const match = normalized.match(/^S?([1-8])$/);
+  if (match) return `S${match[1]}`;
+  return normalized;
+}
+
+function normalizeSlot(value: string | undefined) {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (!normalized || normalized === '-' || normalized === 'NA' || normalized === 'N/A') return '';
+  return normalized;
+}
+
+function normalizeSession(value: string | undefined) {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (normalized === 'FORENOON' || normalized === 'MORNING' || normalized === 'AM') return 'FN';
+  if (normalized === 'AFTERNOON' || normalized === 'EVENING' || normalized === 'PM') return 'AN';
+  return normalized;
+}
+
+function isValidIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -103,6 +130,34 @@ Deno.serve(async (req) => {
         return jsonResponse({ success: false, error: 'No rows provided' }, 400);
       }
 
+      const sanitizedRows = rows
+        .map((r) => {
+          const date = String(r.date || '').trim();
+          const semester = normalizeSemester(r.semester);
+          const slot = normalizeSlot(r.slot);
+          const session = normalizeSession(r.session);
+
+          if (!isValidIsoDate(date)) return null;
+          if (!VALID_SEMESTERS.has(semester)) return null;
+          if (slot && !VALID_SLOTS.has(slot)) return null;
+          if (session && !VALID_SESSIONS.has(session)) return null;
+
+          return {
+            date,
+            day: String(r.day || '').trim(),
+            semester,
+            scheme: String(r.scheme || '2019').trim() || '2019',
+            subject_code: String(r.subject_code || '').trim().toUpperCase(),
+            slot,
+            session,
+          };
+        })
+        .filter(Boolean);
+
+      if (!sanitizedRows.length) {
+        return jsonResponse({ success: false, error: 'No valid rows after validation' }, 400);
+      }
+
       await restRequest('exam_timetable?id=neq.00000000-0000-0000-0000-000000000000', {
         method: 'DELETE',
       });
@@ -110,20 +165,10 @@ Deno.serve(async (req) => {
       await restRequest('exam_timetable', {
         method: 'POST',
         headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify(
-          rows.map((r) => ({
-            date: r.date,
-            day: r.day || '',
-            semester: r.semester,
-            scheme: r.scheme || '2019',
-            subject_code: r.subject_code || '',
-            slot: r.slot || '',
-            session: r.session || '',
-          }))
-        ),
+        body: JSON.stringify(sanitizedRows),
       });
 
-      return jsonResponse({ success: true, count: rows.length });
+      return jsonResponse({ success: true, count: sanitizedRows.length });
     }
 
     if (action === 'update_settings') {
