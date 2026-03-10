@@ -1,53 +1,13 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Bell, ExternalLink, Download, RefreshCw, X, FileText } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-
-
-interface Announcement {
-  id: string;
-  title: string;
-  link: string | null;
-  attachment_url: string | null;
-  published_date: string | null;
-  fetched_at: string;
-}
+import { fetchAllAnnouncements, type Announcement } from "@/lib/announcements";
 
 interface AnnouncementsPanelProps {
   open: boolean;
   onClose: () => void;
-}
-
-async function fetchKtuAnnouncements(): Promise<Announcement[]> {
-  try {
-    const res = await fetch("/api/announcements");
-    if (!res.ok) throw new Error(`KTU API Error: ${res.status}`);
-
-    const data = await res.json();
-    if (data && data.announcements && Array.isArray(data.announcements)) {
-      return data.announcements.map((item: any, i: number) => {
-        let title = item.title || "Announcement";
-        let published_date = item.published_date || "";
-        const link = item.link || null;
-        const attachment = item.attachment_url || null;
-
-        return {
-          id: item.id || `ktu-${i}`,
-          title,
-          link,
-          attachment_url: attachment,
-          published_date,
-          fetched_at: item.fetched_at || new Date().toISOString(),
-        };
-      });
-    }
-    return [];
-  } catch (e) {
-    console.error("Failed to fetch KTU announcements via Vercel API:", e);
-    return [];
-  }
 }
 
 export function AnnouncementsPanel({ open, onClose }: AnnouncementsPanelProps) {
@@ -60,34 +20,7 @@ export function AnnouncementsPanel({ open, onClose }: AnnouncementsPanelProps) {
     setIsLoading(true);
     setFetchError("");
     try {
-      // 1. Fetch live KTU announcements using client-side ReCaptcha
-      let ktuAnnouncements: Announcement[] = [];
-      try {
-        ktuAnnouncements = await fetchKtuAnnouncements();
-      } catch (e) {
-        console.warn("KTU live fetch failed:", e);
-      }
-
-      // 2. Fetch Custom Admin Announcements
-      let customAnnouncements: Announcement[] = [];
-      const { data: adminData, error: adminError } = await supabase
-        .from("admin_announcements")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (!adminError && adminData) {
-        customAnnouncements = adminData.map(item => ({
-          id: item.id || `custom-${item.title}`,
-          title: `📌 ${item.title}`,
-          link: item.link || null,
-          attachment_url: null,
-          published_date: item.published_date || "",
-          fetched_at: item.created_at || new Date().toISOString(),
-        }));
-      }
-
-      // 3. Combine: custom announcements first, then KTU announcements
-      const allAnnouncements = [...customAnnouncements, ...ktuAnnouncements];
+      const allAnnouncements = await fetchAllAnnouncements();
 
       if (allAnnouncements.length === 0) {
         setFetchError("Could not fetch announcements. Try visiting KTU website directly.");

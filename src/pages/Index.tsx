@@ -10,15 +10,20 @@ import { ktuHealthCheck, ktuServerHealthCheck, ktuLogin, ktuGetStudentData, type
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ToastAction } from "@/components/ui/toast";
 import { LogOut, RefreshCw, Zap, CheckCircle2, AlertTriangle, User, Circle, ExternalLink, Bell, Shield, Download } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import { AdminPanel } from "@/components/AdminPanel";
 import { AnnouncementsPanel } from "@/components/AnnouncementsPanel";
 import { ExamTimetable } from "@/components/ExamTimetable";
+import { fetchAllAnnouncements, announcementKey, type Announcement } from "@/lib/announcements";
 
 
 const MAX_RETRIES = 30;
 const RETRY_DELAY = 5000;
+const ANNOUNCEMENT_POLL_INTERVAL_MS = 120000;
+const SEEN_ANNOUNCEMENTS_STORAGE_KEY = "myktu_seen_announcements_v1";
+const NOTIFICATION_PROMPT_STORAGE_KEY = "myktu_notification_prompted_v1";
 
 const Index = () => {
   const { toast } = useToast();
@@ -58,6 +63,9 @@ const Index = () => {
   const [countdown, setCountdown] = useState(0);
   const retryRef = useRef<number | null>(null);
   const countdownRef = useRef<number | null>(null);
+  const announcementPollRef = useRef<number | null>(null);
+  const seenAnnouncementKeysRef = useRef<Set<string>>(new Set());
+  const announcementsInitializedRef = useRef(false);
 
   const clearTimers = () => {
     if (retryRef.current) clearTimeout(retryRef.current);
@@ -121,11 +129,149 @@ const Index = () => {
     loginInProgress.current = false;
   }, []);
 
+  const requestNotificationPermission = useCallback(async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      return "denied" as NotificationPermission;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === "granted") {
+        toast({
+          title: "Notifications enabled",
+          description: "You will receive alerts for new announcements.",
+        });
+      } else if (permission === "denied") {
+        toast({
+          title: "Notifications blocked",
+          description: "Enable notifications from browser settings to receive alerts.",
+          variant: "destructive",
+        });
+      }
+      return permission;
+    } catch (error) {
+      console.error("Failed to request notification permission:", error);
+      return "denied" as NotificationPermission;
+    }
+  }, [toast]);
+
+  const showAnnouncementNotifications = useCallback((items: Announcement[]) => {
+    if (items.length === 0 || typeof window === "undefined") return;
+
+    if (!("Notification" in window) || Notification.permission !== "granted") {
+      toast({
+        title: `${items.length} new announcement${items.length > 1 ? "s" : ""}`,
+        description: "Open the bell icon to view updates.",
+      });
+      return;
+    }
+
+    const latestItems = [...items].reverse();
+    const preview = latestItems.slice(0, 3);
+
+    for (const announcement of preview) {
+      const targetUrl = announcement.link || announcement.attachment_url || "https://ktu.edu.in/Menu/announcements";
+      const notification = new Notification("My KTU Pro", {
+        body: announcement.title,
+        tag: `announcement-${announcementKey(announcement)}`,
+      });
+
+      notification.onclick = () => {
+        window.open(targetUrl, "_blank", "noopener,noreferrer");
+        notification.close();
+      };
+    }
+
+    if (latestItems.length > preview.length) {
+      new Notification("My KTU Pro", {
+        body: `+${latestItems.length - preview.length} more announcement(s)`,
+        tag: "announcement-summary",
+      });
+    }
+  }, [toast]);
+
+  const pollAnnouncements = useCallback(async (isInitialLoad = false) => {
+    try {
+      const items = await fetchAllAnnouncements();
+      if (items.length === 0) return;
+
+      const newItems: Announcement[] = [];
+      for (const item of items) {
+        const key = announcementKey(item);
+        if (!seenAnnouncementKeysRef.current.has(key)) {
+          if (!isInitialLoad && announcementsInitializedRef.current) {
+            newItems.push(item);
+          }
+          seenAnnouncementKeysRef.current.add(key);
+        }
+      }
+
+      if (newItems.length > 0) {
+        showAnnouncementNotifications(newItems);
+      }
+
+      announcementsInitializedRef.current = true;
+      const storedKeys = Array.from(seenAnnouncementKeysRef.current).slice(-500);
+      localStorage.setItem(SEEN_ANNOUNCEMENTS_STORAGE_KEY, JSON.stringify(storedKeys));
+    } catch (error) {
+      console.error("Announcement polling failed:", error);
+    }
+  }, [showAnnouncementNotifications]);
+
   useEffect(() => {
     checkApiStatus();
     const healthInterval = window.setInterval(checkApiStatus, 30000);
     return () => clearInterval(healthInterval);
   }, [checkApiStatus]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "default") return;
+
+    const alreadyPrompted = localStorage.getItem(NOTIFICATION_PROMPT_STORAGE_KEY) === "1";
+    if (alreadyPrompted) return;
+
+    localStorage.setItem(NOTIFICATION_PROMPT_STORAGE_KEY, "1");
+    toast({
+      title: "Enable announcement alerts",
+      description: "Allow notifications to get new announcements automatically.",
+      action: (
+        <ToastAction
+          altText="Enable notifications"
+          onClick={() => {
+            void requestNotificationPermission();
+          }}
+        >
+          Enable
+        </ToastAction>
+      ),
+    });
+  }, [requestNotificationPermission, toast]);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SEEN_ANNOUNCEMENTS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          seenAnnouncementKeysRef.current = new Set(parsed.filter((v) => typeof v === "string"));
+        }
+      }
+    } catch (error) {
+      console.error("Failed to restore seen announcements:", error);
+    }
+
+    void pollAnnouncements(true);
+    announcementPollRef.current = window.setInterval(() => {
+      void pollAnnouncements(false);
+    }, ANNOUNCEMENT_POLL_INTERVAL_MS);
+
+    return () => {
+      if (announcementPollRef.current) {
+        clearInterval(announcementPollRef.current);
+      }
+    };
+  }, [pollAnnouncements]);
 
   // Build exam list from semesters
   const examList = Object.keys(semesters)
