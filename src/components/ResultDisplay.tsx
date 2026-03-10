@@ -34,6 +34,10 @@ interface ExamEntry {
   semester: string;
 }
 
+function normalizeSlot(slot?: string): string {
+  return (slot || "").trim().toUpperCase();
+}
+
 function getGradeColor(grade: string): string {
   const g = grade.trim().toUpperCase();
   if (g === 'S') return 'bg-emerald-600 text-white';
@@ -160,7 +164,19 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
     "CET402": "A", "CET404": "E"
   };
 
-  const getExamDetailsForSubject = (subjectCode: string, absoluteIndex: number) => {
+  const getDisplaySlotForSubject = (result: ParsedResult, examDetails?: { slot?: string } | null) => {
+    const parsedSlot = normalizeSlot(result.slot);
+    if (parsedSlot) return parsedSlot;
+
+    const examSlot = normalizeSlot(examDetails?.slot);
+    if (examSlot) return examSlot;
+
+    const fallbackSlot = ktuSubjectSlots[result.code.trim().toUpperCase()];
+    return normalizeSlot(fallbackSlot);
+  };
+
+  const getExamDetailsForSubject = (result: ParsedResult) => {
+    const subjectCode = result.code;
     // 1. Try exact subject_code match first
     const exactMatch = exams.find(e =>
       e.subject_code && e.subject_code.trim().toUpperCase() === subjectCode.trim().toUpperCase()
@@ -173,7 +189,21 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
       };
     }
 
-    // 2. Fallback matching: Use specific mapped slots
+    // 2. Prefer actual slot parsed from KTU result table for this specific subject
+    if (selectedSemester && normalizeSlot(result.slot)) {
+      const slotMatch = exams.find(e =>
+        e.semester === selectedSemester && normalizeSlot(e.slot) === normalizeSlot(result.slot)
+      );
+      if (slotMatch) {
+        const d = new Date(slotMatch.date);
+        return {
+          ...slotMatch,
+          formattedDate: d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        };
+      }
+    }
+
+    // 3. Legacy fallback: Use static subject-slot mapping
     if (selectedSemester) {
       const expectedSlot = ktuSubjectSlots[subjectCode.trim().toUpperCase()];
 
@@ -261,8 +291,8 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
               const comingSoon = isResultComingSoon(r);
               const isFail = isFailed(r.grade);
               const needsExamDetails = isFail || comingSoon;
-              const absoluteIndex = results.findIndex(item => item.code === r.code);
-              const examDetails = getExamDetailsForSubject(r.code, absoluteIndex);
+              const examDetails = getExamDetailsForSubject(r);
+              const displaySlot = getDisplaySlotForSubject(r, examDetails);
 
               return (
                 <AccordionItem
@@ -279,6 +309,11 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
                         <p className="text-sm font-medium leading-tight sm:truncate">{r.courseName}</p>
                         <div className="flex items-center gap-2 flex-wrap mt-1">
                           <p className="text-xs text-muted-foreground">{r.code}</p>
+                          {displaySlot && (
+                            <Badge variant="outline" className="text-[10px] leading-none px-1.5 py-0.5">
+                              Slot {displaySlot}
+                            </Badge>
+                          )}
                           {needsExamDetails && examDetails && (
                             <Badge variant={isFail ? "destructive" : "secondary"} className={`text-[10px] font-medium leading-none px-1.5 py-0.5 ${comingSoon ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' : ''}`}>
                               <Calendar className="h-3 w-3 mr-1 inline" />
@@ -343,7 +378,7 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
                           </div>
                           <div>
                             <p className="text-[10px] text-muted-foreground">Slot</p>
-                            <p className="text-sm font-medium">{examDetails.slot || '—'}</p>
+                            <p className="text-sm font-medium">{displaySlot || examDetails.slot || '—'}</p>
                           </div>
                         </div>
                       ) : needsExamDetails ? (

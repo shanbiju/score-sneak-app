@@ -8,6 +8,7 @@ export interface KtuLoginResult {
 export interface ParsedResult {
   courseName: string;
   code: string;
+  slot?: string;
   grade: string;
   credits: string;
   earnedCredit?: string;

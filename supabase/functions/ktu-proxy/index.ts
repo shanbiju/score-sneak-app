@@ -300,7 +300,7 @@ Deno.serve(async (req) => {
       if (cgpaMatch) studentInfo.cgpa = cgpaMatch[1];
 
       // Parse all semesters
-      type CourseResult = { courseName: string; code: string; credits: string; grade: string; earnedCredit: string; examDetails: string };
+      type CourseResult = { slot: string; courseName: string; code: string; credits: string; grade: string; earnedCredit: string; examDetails: string };
       type SemesterData = { courses: CourseResult[]; sgpa: string };
       const semesters: Record<string, SemesterData> = {};
 
@@ -340,6 +340,7 @@ Deno.serve(async (req) => {
 
           if (cols.length >= 8) {
             // col[0]=Slot, col[1]=Course, col[2]=Credits, col[3]=Valuation, col[4]=Completed, col[5]=Eligible, col[6]=Re-Reg, col[7]=Grade
+            const slotStr = cols[0] || '';
             const courseStr = cols[1];
             const creditStr = cols[2];
             const gradeStr = cols[7];
@@ -350,6 +351,7 @@ Deno.serve(async (req) => {
             const courseMatch = courseStr.match(/([A-Z]{2,4}\d{3})\s*-\s*(.*)/);
             if (courseMatch) {
               courses.push({
+                slot: slotStr,
                 code: courseMatch[1],
                 courseName: courseMatch[2].trim(),
                 credits: creditStr,
