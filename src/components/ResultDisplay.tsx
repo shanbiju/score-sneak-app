@@ -34,8 +34,86 @@ interface ExamEntry {
   semester: string;
 }
 
+const BUNDLED_TIMETABLE_CSV_PATH = "/data/ktu_btech_exam_schedule_2019_scheme.csv";
+
 function normalizeSlot(slot?: string): string {
   return (slot || "").trim().toUpperCase();
+}
+
+function normalizeSemester(semester?: string): string {
+  const normalized = (semester || "").trim().toUpperCase();
+  if (/^\d+$/.test(normalized)) return `S${normalized}`;
+  return normalized;
+}
+
+function normalizeSession(session?: string): string {
+  const normalized = (session || "").trim().toUpperCase();
+  if (normalized === "FORENOON") return "FN";
+  if (normalized === "AFTERNOON") return "AN";
+  return normalized;
+}
+
+function parseBundledTimetableCsv(csvText: string): ExamEntry[] {
+  const lines = csvText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) return [];
+
+  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  const dateIdx = header.indexOf("date");
+  const dayIdx = header.indexOf("day");
+  const semIdx = header.indexOf("semester");
+  const slotIdx = header.indexOf("slot");
+  const sessionIdx = header.indexOf("session");
+  const subjectIdx = header.findIndex(
+    (h) => h === "subject_code" || h === "subjectcode" || h === "subject code" || h === "subject"
+  );
+
+  if (dateIdx < 0 || semIdx < 0) return [];
+
+  const rows: ExamEntry[] = [];
+  for (let i = 1; i < lines.length; i += 1) {
+    const cols = lines[i].split(",").map((c) => c.trim());
+    const date = cols[dateIdx];
+    const semester = normalizeSemester(cols[semIdx]);
+    if (!date || !semester) continue;
+
+    rows.push({
+      id: `csv-${i}`,
+      date,
+      day: dayIdx >= 0 ? cols[dayIdx] || "" : "",
+      semester,
+      slot: normalizeSlot(slotIdx >= 0 ? cols[slotIdx] : ""),
+      session: normalizeSession(sessionIdx >= 0 ? cols[sessionIdx] : ""),
+      subject_code: subjectIdx >= 0 ? (cols[subjectIdx] || "").toUpperCase() : "",
+    });
+  }
+
+  return rows;
+}
+
+function mergeExamEntries(primary: ExamEntry[], fallback: ExamEntry[]): ExamEntry[] {
+  // Keep fallback rows, override with primary DB rows for same date+sem+slot+session.
+  const merged = new Map<string, ExamEntry>();
+  const put = (entry: ExamEntry) => {
+    const key = `${entry.date}|${entry.semester}|${normalizeSlot(entry.slot)}|${normalizeSession(entry.session)}`;
+    merged.set(key, entry);
+  };
+
+  fallback.forEach(put);
+  primary.forEach(put);
+
+  return Array.from(merged.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function getSequentialSlotByOrder(orderIndex: number): string {
+  if (!Number.isFinite(orderIndex) || orderIndex < 0) return "";
+  const ascii = "A".charCodeAt(0) + orderIndex;
+  // Supports A-Z; beyond that, keep empty instead of showing invalid labels.
+  if (ascii > "Z".charCodeAt(0)) return "";
+  return String.fromCharCode(ascii);
 }
 
 function getGradeColor(grade: string): string {
@@ -126,15 +204,33 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
     const fetchExams = async () => {
       setIsLoadingExams(true);
       const today = new Date().toISOString().split('T')[0];
-      const { data, error } = await supabase
-        .from('exam_timetable')
-        .select('id, date, day, session, slot, semester, subject_code')
-        .gte('date', today)
-        .order('date', { ascending: true });
+      const [dbResult, fallbackCsvText] = await Promise.all([
+        supabase
+          .from('exam_timetable')
+          .select('id, date, day, session, slot, semester, subject_code')
+          .gte('date', today)
+          .order('date', { ascending: true }),
+        fetch(BUNDLED_TIMETABLE_CSV_PATH)
+          .then((r) => (r.ok ? r.text() : ""))
+          .catch(() => ""),
+      ]);
 
-      if (!error && data) {
-        setExams(data as ExamEntry[]);
-      }
+      const dbRows: ExamEntry[] =
+        !dbResult.error && dbResult.data
+          ? (dbResult.data as ExamEntry[]).map((row) => ({
+              ...row,
+              semester: normalizeSemester(row.semester),
+              slot: normalizeSlot(row.slot),
+              session: normalizeSession(row.session),
+              subject_code: row.subject_code ? row.subject_code.trim().toUpperCase() : "",
+            }))
+          : [];
+
+      const fallbackRows = fallbackCsvText
+        ? parseBundledTimetableCsv(fallbackCsvText).filter((e) => e.date >= today)
+        : [];
+
+      setExams(mergeExamEntries(dbRows, fallbackRows));
       setIsLoadingExams(false);
     };
 
@@ -164,7 +260,11 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
     "CET402": "A", "CET404": "E"
   };
 
-  const getDisplaySlotForSubject = (result: ParsedResult, examDetails?: { slot?: string } | null) => {
+  const getDisplaySlotForSubject = (
+    result: ParsedResult,
+    examDetails?: { slot?: string } | null,
+    orderIndex?: number
+  ) => {
     const parsedSlot = normalizeSlot(result.slot);
     if (parsedSlot) return parsedSlot;
 
@@ -172,7 +272,10 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
     if (examSlot) return examSlot;
 
     const fallbackSlot = ktuSubjectSlots[result.code.trim().toUpperCase()];
-    return normalizeSlot(fallbackSlot);
+    if (normalizeSlot(fallbackSlot)) return normalizeSlot(fallbackSlot);
+
+    // Final fallback requested: assign slots in displayed subject order (A, B, C, ...).
+    return getSequentialSlotByOrder(orderIndex ?? -1);
   };
 
   const getExamDetailsForSubject = (result: ParsedResult) => {
@@ -192,7 +295,8 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
     // 2. Prefer actual slot parsed from KTU result table for this specific subject
     if (selectedSemester && normalizeSlot(result.slot)) {
       const slotMatch = exams.find(e =>
-        e.semester === selectedSemester && normalizeSlot(e.slot) === normalizeSlot(result.slot)
+        normalizeSemester(e.semester) === normalizeSemester(selectedSemester) &&
+        normalizeSlot(e.slot) === normalizeSlot(result.slot)
       );
       if (slotMatch) {
         const d = new Date(slotMatch.date);
@@ -209,7 +313,8 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
 
       if (expectedSlot) {
         const slotMatch = exams.find(e =>
-          e.semester === selectedSemester && e.slot && e.slot.trim().toUpperCase() === expectedSlot
+          normalizeSemester(e.semester) === normalizeSemester(selectedSemester) &&
+          normalizeSlot(e.slot) === expectedSlot
         );
         if (slotMatch) {
           const d = new Date(slotMatch.date);
@@ -292,7 +397,7 @@ export function ResultDisplay({ results, rawHtml, studentInfo, selectedSemester 
               const isFail = isFailed(r.grade);
               const needsExamDetails = isFail || comingSoon;
               const examDetails = getExamDetailsForSubject(r);
-              const displaySlot = getDisplaySlotForSubject(r, examDetails);
+              const displaySlot = getDisplaySlotForSubject(r, examDetails, i);
 
               return (
                 <AccordionItem
